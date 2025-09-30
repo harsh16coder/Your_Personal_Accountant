@@ -10,9 +10,6 @@ load_dotenv()
 # -----------------
 # Config
 # ----------------
-# OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-# LLAMA_MODEL = os.getenv("LLAMA_MODEL", "llama3.1:8b-instruct")
-
 DB_PATH = os.getenv("DB_PATH", "finance.db")
 client = Cerebras(
     api_key="csk-8682t4mpjnxckyf5vwhh982e4tpm5yxkxft3tcv6dmy32mh6",
@@ -164,28 +161,6 @@ Return **ONLY** valid JSON in this scheme:
 # -----------------------------------
 # LLM call (Ollama Chat, JSON mode)
 # -----------------------------------
-"""
-def call_llm(user_text: str) -> LLMResult:
-    payload = {
-            "model": LLAMA_MODEL,
-            "format": "json", # enforce JSON-only output
-            "stream": False,
-            "options": {"temperature": 0.1, "top_p":0.9},
-            "messages": [
-                {"role": "system", "content": SYSTEM_POLICY},
-                {"role": "user", "content": user_text}
-                ]
-            }
-    try:
-        resp = requests.post(f"{OLLAMA_HOST}/api/chat", json=payload, timeout=120)
-        resp.raise_for_status()
-        data = resp.json()
-        content = data.get("message", {}).get("content", "")
-        parsed = json.loads(content) # content should be valid JSON
-        return LLMResult(**parsed)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LLM error: {e}")
-"""
 def call_llm(user_text: str) -> LLMResult:
     """
     Calls an API and enforces JSON Output
