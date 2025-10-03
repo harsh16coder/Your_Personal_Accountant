@@ -1,13 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { sendChatMessage, getChatHistory } from '../services/api';
+import { sendChatMessage, createChatSession, getChatMessages } from '../services/api';
+
+// Global function to clear chat session (can be called from login/logout)
+export const clearStoredChatSession = () => {
+  localStorage.removeItem('chatSessionId');
+};
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [conversationState, setConversationState] = useState({});
+  const [sessionId, setSessionId] = useState(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -18,33 +23,83 @@ const Chatbot = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Load chat history when component mounts or when expanded for the first time
+  // Initialize chat session when component mounts or when expanded for the first time
   useEffect(() => {
-    const loadChatHistory = async () => {
-      if (isExpanded && !hasLoadedHistory) {
+    const initializeChat = async () => {
+      if (isExpanded && !hasInitialized) {
         try {
-          const history = await getChatHistory();
-          setMessages(history);
-          setHasLoadedHistory(true);
+          setIsLoading(true);
+          
+          // Check if we have an existing session ID in localStorage
+          const storedSessionId = localStorage.getItem('chatSessionId');
+          let currentSessionId = storedSessionId;
+          
+          // If no stored session or session is invalid, create a new one
+          if (!currentSessionId) {
+            const sessionData = await createChatSession({
+              user_id: 'demo-user', // In a real app, this would come from auth context
+              title: 'Financial Planning Chat'
+            });
+            currentSessionId = sessionData.session_id;
+            localStorage.setItem('chatSessionId', currentSessionId);
+          }
+          
+          setSessionId(currentSessionId);
+          
+          // Load existing messages for this session
+          try {
+            const messagesData = await getChatMessages(currentSessionId);
+            
+            if (messagesData.messages && messagesData.messages.length > 0) {
+              // Convert backend message format to frontend format
+              const convertedMessages = messagesData.messages.map(msg => ({
+                type: msg.role === 'user' ? 'user' : 'bot',
+                content: msg.content,
+                timestamp: new Date(msg.created_at)
+              }));
+              setMessages(convertedMessages);
+            } else {
+              // Add welcome message if no history exists
+              const welcomeMessage = {
+                type: 'bot',
+                content: 'Hello! I\'m your Personal Finance Assistant. I can help you record expenses, track trades, and answer finance-related questions. Try saying something like "I spent $12 on lunch at Chipotle today" or "Help me understand my budget".',
+                timestamp: new Date()
+              };
+              setMessages([welcomeMessage]);
+            }
+          } catch (sessionError) {
+            console.error('Failed to load chat messages:', sessionError);
+            // If we can't load messages, still set up the session but with welcome message
+            const welcomeMessage = {
+              type: 'bot',
+              content: 'Hello! I\'m your Personal Finance Assistant. I can help you record expenses, track trades, and answer finance-related questions. Try saying something like "I spent $12 on lunch at Chipotle today" or "Help me understand my budget".',
+              timestamp: new Date()
+            };
+            setMessages([welcomeMessage]);
+          }
+          
+          setHasInitialized(true);
         } catch (error) {
-          console.error('Failed to load chat history:', error);
-          // Add a welcome message if history fails to load
+          console.error('Failed to initialize chat:', error);
+          // Add error message
           setMessages([{
             type: 'bot',
-            content: 'Hello! Welcome to your Personal Accountant. I\'m here to help you manage your budget and financial planning. How can I assist you today?',
+            content: 'Hello! I\'m your Personal Finance Assistant. I\'m having trouble connecting to the server right now, but I\'m here to help with your financial questions.',
             timestamp: new Date()
           }]);
-          setHasLoadedHistory(true);
+          setHasInitialized(true);
+        } finally {
+          setIsLoading(false);
         }
       }
     };
 
-    loadChatHistory();
-  }, [isExpanded, hasLoadedHistory]);
+    initializeChat();
+  }, [isExpanded, hasInitialized]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!inputMessage.trim() || isLoading) return;
+    if (!inputMessage.trim() || isLoading || !sessionId) return;
 
     const userMessage = inputMessage.trim();
     setInputMessage('');
@@ -60,26 +115,26 @@ const Chatbot = () => {
 
     try {
       const response = await sendChatMessage({
-        message: userMessage,
-        conversation_state: conversationState
+        user_id: 'demo-user', // In a real app, this would come from auth
+        session_id: sessionId,
+        message: userMessage
       });
 
       // Add bot response to chat
       const botMessage = {
         type: 'bot',
-        content: response.response,
-        timestamp: new Date()
+        content: response.reply,
+        timestamp: new Date(),
+        status: response.status, // 'saved', 'clarify', 'rejected', 'answered'
+        meta: response.meta
       };
       setMessages(prev => [...prev, botMessage]);
-
-      // Update conversation state
-      setConversationState(response.conversation_state || {});
 
     } catch (error) {
       console.error('Chat error:', error);
       const errorMessage = {
         type: 'bot',
-        content: 'Sorry, I encountered an error. Please try again. In the meantime, I can still help you navigate the dashboard and explain your financial data.',
+        content: 'Sorry, I encountered an error connecting to the server. Please make sure the backend is running on http://localhost:5000 and try again.',
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -96,11 +151,45 @@ const Chatbot = () => {
     return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const clearChatSession = async () => {
+    try {
+      // Clear stored session
+      localStorage.removeItem('chatSessionId');
+      
+      // Reset state
+      setSessionId(null);
+      setMessages([]);
+      setHasInitialized(false);
+      
+      // Re-initialize with a new session
+      if (isExpanded) {
+        const sessionData = await createChatSession({
+          user_id: 'demo-user',
+          title: 'Financial Planning Chat'
+        });
+        
+        setSessionId(sessionData.session_id);
+        localStorage.setItem('chatSessionId', sessionData.session_id);
+        
+        // Add welcome message
+        const welcomeMessage = {
+          type: 'bot',
+          content: 'Hello! I\'m your Personal Finance Assistant. I can help you record expenses, track trades, and answer finance-related questions. Try saying something like "I spent $12 on lunch at Chipotle today" or "Help me understand my budget".',
+          timestamp: new Date()
+        };
+        setMessages([welcomeMessage]);
+        setHasInitialized(true);
+      }
+    } catch (error) {
+      console.error('Failed to clear chat session:', error);
+    }
+  };
+
   const quickReplies = [
-    "Help me prioritize my payments",
-    "Show my budget analysis",
-    "What should I pay first?",
-    "Explain my financial status"
+    "I spent $15 on lunch today",
+    "Help me understand my budget",
+    "I bought 10 shares of AAPL at $150",
+    "What should I pay first?"
   ];
 
   return (
@@ -125,6 +214,20 @@ const Chatbot = () => {
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            {isExpanded && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearChatSession();
+                }}
+                className="p-1 hover:bg-white hover:bg-opacity-20 rounded-full transition-colors duration-200"
+                title="Clear Chat History"
+              >
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            )}
             {!isExpanded && (
               <div className="flex space-x-1">
                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -237,13 +340,13 @@ const Chatbot = () => {
                 type="text"
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Ask about your finances, budget, or payments..."
+                placeholder="Record expenses, trades, or ask finance questions..."
                 className="flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-blue focus:border-transparent"
-                disabled={isLoading}
+                disabled={isLoading || !sessionId}
               />
               <button
                 type="submit"
-                disabled={!inputMessage.trim() || isLoading}
+                disabled={!inputMessage.trim() || isLoading || !sessionId}
                 className="bg-primary-blue text-white px-6 py-3 rounded-full hover:bg-dark-blue disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 flex items-center space-x-2"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
