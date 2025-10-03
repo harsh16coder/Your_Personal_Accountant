@@ -2,7 +2,7 @@ import axios from 'axios';
 import { mockAPI } from './mockData';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-const USE_MOCK_DATA = process.env.REACT_APP_USE_MOCK === 'true' || true; // Use mock data by default
+const USE_MOCK_DATA = process.env.REACT_APP_USE_MOCK === 'true'; // Use real API by default
 
 // Create axios instance with default config
 const api = axios.create({
@@ -33,10 +33,10 @@ api.interceptors.response.use(
   }
 );
 
-// Helper function to decide between mock and real API
-const selectAPI = (mockFunction, realFunction) => {
-  return USE_MOCK_DATA ? mockFunction : realFunction;
-};
+// Helper function to decide between mock and real API (commented out as we're using direct conditionals)
+// const selectAPI = (mockFunction, realFunction) => {
+//   return USE_MOCK_DATA ? mockFunction : realFunction;
+// };
 
 // Auth API calls
 export const register = USE_MOCK_DATA ? 
@@ -134,10 +134,24 @@ export const getRecommendations = USE_MOCK_DATA ?
   };
 
 // Chatbot API calls
+export const createChatSession = USE_MOCK_DATA ? 
+  mockAPI.createChatSession || (() => Promise.resolve({ session_id: 'mock-session', title: 'Mock Chat' })) :
+  async (sessionData) => {
+    const response = await api.post('/api/sessions', sessionData);
+    return response.data;
+  };
+
+export const getChatMessages = USE_MOCK_DATA ? 
+  mockAPI.getChatMessages || (() => Promise.resolve({ messages: [] })) :
+  async (sessionId) => {
+    const response = await api.get(`/api/sessions/${sessionId}/messages`);
+    return response.data;
+  };
+
 export const sendChatMessage = USE_MOCK_DATA ? 
   mockAPI.sendChatMessage : 
   async (messageData) => {
-    const response = await api.post('/api/chat/', messageData);
+    const response = await api.post('/api/chat', messageData);
     return response.data;
   };
 

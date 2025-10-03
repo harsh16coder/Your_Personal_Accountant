@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { clearStoredChatSession } from './Chatbot';
 
 const ProfileMenu = ({ user, onProfileUpdate }) => {
   const [isExpanded, setIsExpanded] = useState(false);

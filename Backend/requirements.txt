@@ -1,0 +1,6 @@
+Flask==3.0.3
+flask-cors==4.0.1
+pydantic==2.8.2
+python-dotenv==1.0.1
+cerebras_cloud_sdk
+
