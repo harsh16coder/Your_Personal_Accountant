@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { sendChatMessage, validateSession, createChatSession, getChatMessages } from '../services/api';
+import { sendChatMessage, createChatSession, getChatMessages } from '../services/api';
+import { getCurrentUserId, isAuthenticated } from '../utils/auth';
 
 // Global function to clear chat session (can be called from login/logout)
 export const clearStoredChatSession = () => {
@@ -26,6 +27,28 @@ const Chatbot = () => {
   // Initialize chat session when component mounts or when expanded for the first time
   useEffect(() => {
     const initializeChat = async () => {
+      // Check if user is authenticated
+      if (!isAuthenticated()) {
+        setMessages([{
+          type: 'bot',
+          content: 'Please log in to use the Personal Finance Assistant. Your conversations are saved securely with your account.',
+          timestamp: new Date()
+        }]);
+        setHasInitialized(true);
+        return;
+      }
+
+      const userId = getCurrentUserId();
+      if (!userId) {
+        setMessages([{
+          type: 'bot',
+          content: 'Authentication error. Please log in again to use the chatbot.',
+          timestamp: new Date()
+        }]);
+        setHasInitialized(true);
+        return;
+      }
+
       if (isExpanded && !hasInitialized) {
         try {
           setIsLoading(true);
@@ -33,27 +56,15 @@ const Chatbot = () => {
           // Check if we have an existing session ID in localStorage
           const storedSessionId = localStorage.getItem('chatSessionId');
           let currentSessionId = storedSessionId;
-
-	  if(currentSessionId)
-		{
-	  		const isValid = await validateSession(currentSessionId);
-	  		if(!isValid) {
-		  		console.log('Invalid sessionId detected, clearing storage...');
-		  		localStorage.removeItem('chatSessionId')
-				currentSessionId = '';
-	  		}
-		}
           
           // If no stored session or session is invalid, create a new one
           if (!currentSessionId) {
             const sessionData = await createChatSession({
-              user_id: 'demo-user', // In a real app, this would come from auth context
               title: 'Financial Planning Chat'
             });
             currentSessionId = sessionData.session_id;
             localStorage.setItem('chatSessionId', currentSessionId);
           }
-	  
           
           setSessionId(currentSessionId);
           
@@ -80,7 +91,24 @@ const Chatbot = () => {
             }
           } catch (sessionError) {
             console.error('Failed to load chat messages:', sessionError);
-            // If we can't load messages, still set up the session but with welcome message
+            
+            // If session doesn't exist (404), create a new one
+            if (sessionError.response?.status === 404) {
+              try {
+                console.log('Session not found, creating new session...');
+                localStorage.removeItem('chatSessionId');
+                const newSessionData = await createChatSession({
+                  title: 'Financial Planning Chat'
+                });
+                currentSessionId = newSessionData.session_id;
+                localStorage.setItem('chatSessionId', currentSessionId);
+                setSessionId(currentSessionId);
+              } catch (createError) {
+                console.error('Failed to create new session:', createError);
+              }
+            }
+            
+            // Add welcome message regardless
             const welcomeMessage = {
               type: 'bot',
               content: 'Hello! I\'m your Personal Finance Assistant. I can help you record expenses, track trades, and answer finance-related questions. Try saying something like "I spent $12 on lunch at Chipotle today" or "Help me understand my budget".',
@@ -112,6 +140,17 @@ const Chatbot = () => {
     e.preventDefault();
     if (!inputMessage.trim() || isLoading || !sessionId) return;
 
+    // Check authentication before sending message
+    if (!isAuthenticated()) {
+      const authErrorMessage = {
+        type: 'bot',
+        content: 'Your session has expired. Please log in again to continue using the chatbot.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, authErrorMessage]);
+      return;
+    }
+
     const userMessage = inputMessage.trim();
     setInputMessage('');
     setIsLoading(true);
@@ -126,7 +165,6 @@ const Chatbot = () => {
 
     try {
       const response = await sendChatMessage({
-        user_id: 'demo-user', // In a real app, this would come from auth
         session_id: sessionId,
         message: userMessage
       });
@@ -143,9 +181,43 @@ const Chatbot = () => {
 
     } catch (error) {
       console.error('Chat error:', error);
+      
+      // If session doesn't exist (404), try to create a new session and retry
+      if (error.response?.status === 404) {
+        try {
+          console.log('Session not found, creating new session and retrying...');
+          localStorage.removeItem('chatSessionId');
+          const newSessionData = await createChatSession({
+            title: 'Financial Planning Chat'
+          });
+          const newSessionId = newSessionData.session_id;
+          localStorage.setItem('chatSessionId', newSessionId);
+          setSessionId(newSessionId);
+          
+          // Retry the message with new session
+          const retryResponse = await sendChatMessage({
+            session_id: newSessionId,
+            message: userMessage
+          });
+          
+          const botMessage = {
+            type: 'bot',
+            content: retryResponse.reply,
+            timestamp: new Date(),
+            status: retryResponse.status,
+            meta: retryResponse.meta
+          };
+          setMessages(prev => [...prev, botMessage]);
+          return;
+          
+        } catch (retryError) {
+          console.error('Failed to create new session and retry:', retryError);
+        }
+      }
+      
       const errorMessage = {
         type: 'bot',
-        content: 'Sorry, I encountered an error connecting to the server. Please make sure the backend is running on http://localhost:5000 and try again.',
+        content: 'Sorry, I encountered an error connecting to the server. Please make sure the backend is running and try again.',
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -163,6 +235,10 @@ const Chatbot = () => {
   };
 
   const clearChatSession = async () => {
+    if (!isAuthenticated()) {
+      return;
+    }
+
     try {
       // Clear stored session
       localStorage.removeItem('chatSessionId');
@@ -175,7 +251,6 @@ const Chatbot = () => {
       // Re-initialize with a new session
       if (isExpanded) {
         const sessionData = await createChatSession({
-          user_id: 'demo-user',
           title: 'Financial Planning Chat'
         });
         

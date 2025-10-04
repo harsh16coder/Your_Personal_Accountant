@@ -34,13 +34,6 @@ const Login = () => {
     }
   };
 
-  const handleDemoLogin = () => {
-    setFormData({
-      email: 'demo@example.com',
-      password: 'demo123'
-    });
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -59,7 +52,7 @@ const Login = () => {
           </p>
         </div>
 
-        {/* Demo Notice */}
+        {/* Sign Up Notice */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex">
             <div className="flex-shrink-0">
@@ -69,16 +62,16 @@ const Login = () => {
             </div>
             <div className="ml-3">
               <h3 className="text-sm font-medium text-blue-800">
-                Try the Demo
+                New to Personal Accountant?
               </h3>
               <div className="mt-2 text-sm text-blue-700">
-                <p>Experience the app with sample financial data.</p>
-                <button
-                  onClick={handleDemoLogin}
+                <p>Create your account to start managing your finances with AI-powered insights.</p>
+                <Link
+                  to="/register"
                   className="mt-2 text-blue-800 hover:text-blue-900 font-medium underline"
                 >
-                  Load demo credentials
-                </button>
+                  Create your free account
+                </Link>
               </div>
             </div>
           </div>
