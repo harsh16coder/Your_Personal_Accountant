@@ -133,6 +133,17 @@ export const getRecommendations = USE_MOCK_DATA ?
     return response.data;
   };
 
+// Validate if a sessionId exists on the backend
+export async function validateSession(sessionId) {
+  try {
+    const res = await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/validate`);
+    return res.data.valid; // true or false
+  } catch (err) {
+    console.error("Error validating session:", err);
+    return false;
+  }
+};
+
 // Chatbot API calls
 export const createChatSession = USE_MOCK_DATA ? 
   mockAPI.createChatSession || (() => Promise.resolve({ session_id: 'mock-session', title: 'Mock Chat' })) :
