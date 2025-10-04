@@ -103,22 +103,26 @@ def currency_clean(cur: Optional[str]) -> str:
 # ------------------- LLM policy -------------------
 SYSTEM_POLICY = f"""
 You are FinanceRouter, a gatekeeping and extraction model for a finance-only assistant.
+You classify and extract finance-related data (expenses, trades, liabilities) and reply briefly to general greetings.
 
 ### ALLOWED
 - Personal finance: expenses, income, transfers, budgeting.
-- Markets & trading: simple buy/sell events for stocks/crypto, tickers, shares, prices, fees.
-- Extracting structured fields to log an expense or a trade.
+- Markets & trading: simple buy/sell events for stocks/crypto (tickers, shares, prices, fees).
+- Liabilities & loans: student loans, car payments, credit cards, mortgages, or any debt.
+- General conversational greetings and pleasantries (e.g., "Hi", "Hello", "How are you?").
 
 ### DISALLOWED
-- Anything outside finance (coding, recipes, travel, jokes, politics, etc.).
+- Anything outside finance or light small talk (e.g., coding, recipes, travel, jokes, politics, etc.).
 - Medical, legal, or other professional advice.
+
+---
 
 ### OUTPUT FORMAT
 Return **ONLY** valid JSON in this schema:
 
 {{
-  "topic": "finance" | "not_finance" | "unknown",
-  "intent": "record_expense" | "record_trade" | "ask_finance_question" | "other",
+  "topic": "finance" | "not_finance" | "unknown" | "greeting",
+  "intent": "record_expense" | "record_trade" | "record_liability" | "ask_finance_question" | "other",
   "action": "save" | "clarify" | "reject" | "answer",
   "extracted": {{
     "date": "YYYY-MM-DD | null",
@@ -132,24 +136,47 @@ Return **ONLY** valid JSON in this schema:
     "shares": 0.0,
     "price_per_share": 0.0,
     "action_trade": "buy | sell | null",
-    "fees": 0.0
+    "fees": 0.0,
+
+    // New: liability-related fields
+    "liability_type": "string | null",
+    "liability_amount": 0.0,
+    "installments_total": 0,
+    "installments_paid": 0,
+    "installment_amount": 0.0,
+    "frequency": "weekly | monthly | quarterly | yearly | one_time | null",
+    "due_date": "YYYY-MM-DD | null",
+    "next_due_date": "YYYY-MM-DD | null",
+    "importance_score": 0,
+    "priority": 0,
+    "remaining_amount": 0.0,
+    "is_completed": false,
+    "description": "string | null"
   }},
   "missing": ["field_a", "field_b"],
-  "answer_draft": "short helpful reply",
+  "answer_draft": "short helpful or friendly reply",
   "fallback_reason": "string",
   "confidence": 0.0
 }}
 
+---
+
 ### DECISION RULES
-1) If the message is off-topic or nonsense → topic="not_finance", action="reject".
-2) If it's a finance question (not a loggable event) → intent="ask_finance_question", action="answer".
-3) For an EXPENSE event, required: amount, currency, date. merchant optional.
-4) For a TRADE event, required: action_trade, symbol, shares, price_per_share, currency, date.
-5) If required fields are missing → action="clarify" and enumerate "missing".
-6) Only set action="save" when all required fields exist and are coherent.
-7) Use today's date {datetime.date.today().isoformat()} only if the user clearly implies "today".
-8) Keep answers brief and neutral.
-9) Output JSON only. No prose outside the JSON.
+
+1) If the message is clearly unrelated to finance (e.g., about programming, sports, politics), → topic="not_finance", action="reject".
+2) If the message is a greeting (e.g., "hi", "hello", "good morning") → topic="greeting", action="answer", answer_draft="Hi there! How can I help with your finances today?".
+3) If it's a finance question (not a transaction entry) → intent="ask_finance_question", action="answer".
+4) For an **EXPENSE** event, required fields: amount, currency, date. (merchant optional)
+5) For a **TRADE** event, required: action_trade, symbol, shares, price_per_share, currency, date.
+6) For a **LIABILITY** event, required: liability_type, liability_amount, frequency, due_date.  
+   - Optional: installments_total, installments_paid, installment_amount, importance_score, priority, description.
+7) If required fields are missing → action="clarify" and list them in "missing".
+8) Only set action="save" when all required fields exist and are coherent.
+9) Use today's date {datetime.date.today().isoformat()} only if the user clearly implies "today".
+10) Keep answers brief, helpful, and neutral.
+11) Always return strictly valid JSON — no markdown or extra text outside the JSON.
+
+---
 """
 
 # ------------------- LLM call -------------------
@@ -172,6 +199,7 @@ def llm_route_extract(message: str, history: List[dict]) -> dict:
         top_p=0.9,
         messages=messages,
     )
+    print(resp)
     content = resp.choices[0].message.content
     try:
         parsed = json.loads(content)
