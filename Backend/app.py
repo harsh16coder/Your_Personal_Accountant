@@ -84,6 +84,28 @@ def init_db():
       created_at TEXT NOT NULL
     )
     """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS liabilities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      liability_type TEXT NOT NULL,                    -- e.g., 'Student Loan', 'Car Payment'
+      liability_amount_cents INTEGER NOT NULL,         -- original total amount
+      installments_total INTEGER,                      -- total # of installments planned
+      installments_paid INTEGER DEFAULT 0,             -- # paid so far
+      installment_amount_cents INTEGER,                -- per-installment amount
+      frequency TEXT DEFAULT 'monthly' CHECK(          -- 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'one_time'
+        frequency IN ('weekly','monthly','quarterly','yearly','one_time')
+      ),
+      due_date TEXT,                                   -- original/anchor due date (YYYY-MM-DD)
+      next_due_date TEXT,                              -- next upcoming due date (YYYY-MM-DD)
+      importance_score INTEGER,                        -- from mock
+      priority INTEGER,                                -- from mock
+      remaining_amount_cents INTEGER,                  -- remaining principal/amount
+      is_completed INTEGER DEFAULT 0,                  -- 0/1 boolean
+      description TEXT,
+      created_at TEXT NOT NULL
+    )
+    """)
     conn.commit()
     conn.close()
 
@@ -218,14 +240,16 @@ def llm_route_extract(message: str, history: List[dict]) -> dict:
         }
 
 # ------------------- SQL builder -------------------
+# ------------------- SQL builder -------------------
 def build_sql_and_params(user_id: str, source_text: str, llm: dict):
     x = llm.get("extracted", {}) or {}
     created_at = now_iso()
 
     def missing(fields):
-        miss = [f for f in fields if not x.get(f)]
-        return miss
+        # treat empty strings / None as missing
+        return [f for f in fields if x.get(f) in (None, "", [])]
 
+    # ---------------- Expenses ----------------
     if llm.get("intent") == "record_expense":
         req = ["amount", "currency", "date"]
         miss = missing(req)
@@ -250,6 +274,7 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         ]
         return sql.strip(), params, "expenses"
 
+    # ---------------- Trades ----------------
     if llm.get("intent") == "record_trade":
         req = ["action_trade", "symbol", "shares", "price_per_share", "currency", "date"]
         miss = missing(req)
@@ -277,7 +302,107 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         ]
         return sql.strip(), params, "trades"
 
+    # ---------------- Liabilities (NEW) ----------------
+    if llm.get("intent") == "record_liability":
+        # Minimal set required to create a liability row
+        # (Aligns with your policy: type, amount, frequency, due_date)
+        req = ["liability_type", "liability_amount", "frequency", "due_date"]
+        miss = missing(req)
+        if miss:
+            raise ValueError(f"missing fields for liability: {miss}")
+
+        # Normalize booleans and numeric fields
+        def to_bool(v):
+            return 1 if v in (True, 1, "1", "true", "True", "yes", "YES") else 0
+
+        liability_type = (x.get("liability_type") or "").strip()
+        liability_amount = float(x.get("liability_amount") or 0.0)
+
+        installments_total = x.get("installments_total")
+        installments_total = int(installments_total) if installments_total not in (None, "") else None
+
+        installments_paid = x.get("installments_paid")
+        installments_paid = int(installments_paid) if installments_paid not in (None, "") else 0
+
+        installment_amount = x.get("installment_amount")
+        installment_amount_cents = (
+            to_cents(float(installment_amount)) if installment_amount not in (None, "") else None
+        )
+
+        frequency = (x.get("frequency") or "monthly").strip().lower()
+        # Ensure frequency is one of the allowed values, else default to 'monthly'
+        if frequency not in ("weekly", "monthly", "quarterly", "yearly", "one_time"):
+            frequency = "monthly"
+
+        due_date = x.get("due_date") or None
+        next_due_date = x.get("next_due_date") or due_date
+
+        importance_score = x.get("importance_score")
+        importance_score = int(importance_score) if importance_score not in (None, "") else None
+
+        priority = x.get("priority")
+        priority = int(priority) if priority not in (None, "") else None
+
+        remaining_amount = x.get("remaining_amount")
+        # If remaining not provided, derive from liability - (installment * paid) when possible
+        if remaining_amount in (None, ""):
+            try:
+                if installment_amount is not None and installments_paid is not None:
+                    remaining_amount = max(0.0, float(liability_amount) - float(installment_amount) * float(installments_paid))
+                else:
+                    remaining_amount = float(liability_amount)
+            except Exception:
+                remaining_amount = float(liability_amount)
+
+        remaining_amount_cents = to_cents(float(remaining_amount)) if remaining_amount not in (None, "") else None
+
+        is_completed = to_bool(x.get("is_completed"))
+
+        description = x.get("description")
+
+        sql = """
+        INSERT INTO liabilities (
+            user_id,
+            liability_type,
+            liability_amount_cents,
+            installments_total,
+            installments_paid,
+            installment_amount_cents,
+            frequency,
+            due_date,
+            next_due_date,
+            importance_score,
+            priority,
+            remaining_amount_cents,
+            is_completed,
+            description,
+            created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        params = [
+            user_id,
+            liability_type,
+            to_cents(liability_amount),
+            installments_total,
+            installments_paid,
+            installment_amount_cents,
+            frequency,
+            due_date,
+            next_due_date,
+            importance_score,
+            priority,
+            remaining_amount_cents,
+            is_completed,
+            description,
+            created_at,
+        ]
+
+        return sql.strip(), params, "liabilities"
+
+    # ---------------- No match ----------------
     raise ValueError("No SQL for this intent")
+
 
 # ------------------- API endpoints -------------------
 @app.post("/api/sessions")
@@ -375,8 +500,10 @@ def chat():
             status = "saved"
             if table == "expenses":
                 reply = "Saved your expense."
-            else:
+            elif table == "trades":
                 reply = "Saved your trade."
+            else:
+                reply = "Saved your liability"
             meta["record_id"] = rid
             meta["table"] = table
         except Exception as e:
