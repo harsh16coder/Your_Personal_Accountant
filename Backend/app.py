@@ -49,6 +49,17 @@ def init_db():
     )
     """)
 
+    cur.execute("""
+	CREATE TABLE IF NOT EXISTS assets (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id TEXT NOT NULL,
+  	asset_type TEXT NOT NULL,           -- e.g., 'Savings Account', 'Investment'
+  	asset_value_cents INTEGER NOT NULL, -- stored in cents for accuracy
+  	asset_description TEXT,
+  	created_at TEXT NOT NULL
+	)
+	""")
+
     # expenses tables
     cur.execute("""
     CREATE TABLE IF NOT EXISTS expenses (
@@ -125,12 +136,13 @@ def currency_clean(cur: Optional[str]) -> str:
 # ------------------- LLM policy -------------------
 SYSTEM_POLICY = f"""
 You are FinanceRouter, a gatekeeping and extraction model for a finance-only assistant.
-You classify and extract finance-related data (expenses, trades, liabilities) and reply briefly to general greetings.
+You classify and extract finance-related data (expenses, trades, liabilities, assets) and reply briefly to general greetings.
 
 ### ALLOWED
 - Personal finance: expenses, income, transfers, budgeting.
 - Markets & trading: simple buy/sell events for stocks/crypto (tickers, shares, prices, fees).
 - Liabilities & loans: student loans, car payments, credit cards, mortgages, or any debt.
+- Assets: cash, savings accounts, deposits, investments, stocks, funds, properties, etc.
 - General conversational greetings and pleasantries (e.g., "Hi", "Hello", "How are you?").
 
 ### DISALLOWED
@@ -139,12 +151,24 @@ You classify and extract finance-related data (expenses, trades, liabilities) an
 
 ---
 
+### IMPORTANT MAPPINGS & RESTRICTIONS
+- There is **no** `record_income` intent.
+- If the user declares an income amount (e.g., "My monthly income is 10000", "I earn 2L per month"):
+  - Treat it as **`record_asset`** with:
+    - `"asset_type": "Income"`
+    - `"asset_value": <amount as a number>`
+    - Optionally set `"asset_description"` like "monthly income" if implied.
+  - Only set the date to **today** ({datetime.date.today().isoformat()}) if the user clearly implies "today".
+- Do **not** invent intents that are not listed below.
+
+---
+
 ### OUTPUT FORMAT
 Return **ONLY** valid JSON in this schema:
 
 {{
   "topic": "finance" | "not_finance" | "unknown" | "greeting",
-  "intent": "record_expense" | "record_trade" | "record_liability" | "ask_finance_question" | "other",
+  "intent": "record_expense" | "record_trade" | "record_liability" | "record_asset" | "ask_finance_question" | "other",
   "action": "save" | "clarify" | "reject" | "answer",
   "extracted": {{
     "date": "YYYY-MM-DD | null",
@@ -160,7 +184,7 @@ Return **ONLY** valid JSON in this schema:
     "action_trade": "buy | sell | null",
     "fees": 0.0,
 
-    // New: liability-related fields
+    // Liability fields
     "liability_type": "string | null",
     "liability_amount": 0.0,
     "installments_total": 0,
@@ -173,7 +197,12 @@ Return **ONLY** valid JSON in this schema:
     "priority": 0,
     "remaining_amount": 0.0,
     "is_completed": false,
-    "description": "string | null"
+    "description": "string | null",
+
+    // Asset fields
+    "asset_type": "string | null",
+    "asset_value": 0.0,
+    "asset_description": "string | null"
   }},
   "missing": ["field_a", "field_b"],
   "answer_draft": "short helpful or friendly reply",
@@ -185,21 +214,284 @@ Return **ONLY** valid JSON in this schema:
 
 ### DECISION RULES
 
-1) If the message is clearly unrelated to finance (e.g., about programming, sports, politics), → topic="not_finance", action="reject".
-2) If the message is a greeting (e.g., "hi", "hello", "good morning") → topic="greeting", action="answer", answer_draft="Hi there! How can I help with your finances today?".
+1) If the message is clearly unrelated to finance (e.g., programming, sports, politics) → topic="not_finance", action="reject".
+2) If the message is a greeting (e.g., "hi", "hello", "good morning") → topic="greeting", action="answer",
+   answer_draft="Hi there! How can I help with your finances today?".
 3) If it's a finance question (not a transaction entry) → intent="ask_finance_question", action="answer".
-4) For an **EXPENSE** event, required fields: amount, currency, date. (merchant optional)
+
+4) For an **EXPENSE** event, required: amount, currency, date. (merchant optional)
 5) For a **TRADE** event, required: action_trade, symbol, shares, price_per_share, currency, date.
-6) For a **LIABILITY** event, required: liability_type, liability_amount, frequency, due_date.  
-   - Optional: installments_total, installments_paid, installment_amount, importance_score, priority, description.
-7) If required fields are missing → action="clarify" and list them in "missing".
-8) Only set action="save" when all required fields exist and are coherent.
-9) Use today's date {datetime.date.today().isoformat()} only if the user clearly implies "today".
+6) For a **LIABILITY** event, required: liability_type, liability_amount, frequency, due_date.
+   - Optional: installments_total, installments_paid, installment_amount, importance_score, priority,
+     description, next_due_date, remaining_amount, is_completed.
+7) For an **ASSET** event, required: asset_type, asset_value.
+   - Optional: asset_description, date.
+   - The "date" maps to the asset's created_at; only use today's date {datetime.date.today().isoformat()} if clearly implied.
+
+8) If required fields are missing → action="clarify" and list them in "missing".
+9) Only set action="save" when all required fields exist and are coherent.
 10) Keep answers brief, helpful, and neutral.
 11) Always return strictly valid JSON — no markdown or extra text outside the JSON.
 
 ---
+
+### EXAMPLES
+
+# GREETING
+INPUT: "Hi"
+OUTPUT:
+{{
+  "topic": "greeting",
+  "intent": "other",
+  "action": "answer",
+  "extracted": {{}},
+  "missing": [],
+  "answer_draft": "Hi there! How can I help with your finances today?",
+  "fallback_reason": "",
+  "confidence": 0.95
+}}
+
+# OFF-TOPIC (NOT FINANCE)
+INPUT: "Write me a Python script"
+OUTPUT:
+{{
+  "topic": "not_finance",
+  "intent": "other",
+  "action": "reject",
+  "extracted": {{}},
+  "missing": [],
+  "answer_draft": "I can help with finance-related tasks. What would you like to do with your money today?",
+  "fallback_reason": "",
+  "confidence": 0.95
+}}
+
+# EXPENSE (SAVE)
+INPUT: "Paid ₹250 for groceries today"
+OUTPUT:
+{{
+  "topic": "finance",
+  "intent": "record_expense",
+  "action": "save",
+  "extracted": {{
+    "date": "{datetime.date.today().isoformat()}",
+    "amount": 250,
+    "currency": "INR",
+    "merchant": null,
+    "category": "groceries",
+    "account": null,
+    "note": "groceries",
+    "symbol": null,
+    "shares": 0,
+    "price_per_share": 0,
+    "action_trade": null,
+    "fees": 0,
+
+    "liability_type": null,
+    "liability_amount": 0,
+    "installments_total": 0,
+    "installments_paid": 0,
+    "installment_amount": 0,
+    "frequency": null,
+    "due_date": null,
+    "next_due_date": null,
+    "importance_score": 0,
+    "priority": 0,
+    "remaining_amount": 0,
+    "is_completed": false,
+    "description": null,
+
+    "asset_type": null,
+    "asset_value": 0,
+    "asset_description": null
+  }},
+  "missing": [],
+  "answer_draft": "Logged your ₹250 groceries expense.",
+  "fallback_reason": "",
+  "confidence": 0.9
+}}
+
+# TRADE (SAVE)
+INPUT: "Buy 10 TCS at ₹3450 today"
+OUTPUT:
+{{
+  "topic": "finance",
+  "intent": "record_trade",
+  "action": "save",
+  "extracted": {{
+    "date": "{datetime.date.today().isoformat()}",
+    "amount": 0,
+    "currency": "INR",
+    "merchant": null,
+    "category": null,
+    "account": null,
+    "note": null,
+    "symbol": "TCS",
+    "shares": 10,
+    "price_per_share": 3450,
+    "action_trade": "buy",
+    "fees": 0,
+
+    "liability_type": null,
+    "liability_amount": 0,
+    "installments_total": 0,
+    "installments_paid": 0,
+    "installment_amount": 0,
+    "frequency": null,
+    "due_date": null,
+    "next_due_date": null,
+    "importance_score": 0,
+    "priority": 0,
+    "remaining_amount": 0,
+    "is_completed": false,
+    "description": null,
+
+    "asset_type": null,
+    "asset_value": 0,
+    "asset_description": null
+  }},
+  "missing": [],
+  "answer_draft": "Logged your buy of 10 TCS at ₹3450.",
+  "fallback_reason": "",
+  "confidence": 0.9
+}}
+
+# LIABILITY (SAVE)
+INPUT: "New student loan ₹5,00,000, monthly, due 2025-11-10"
+OUTPUT:
+{{
+  "topic": "finance",
+  "intent": "record_liability",
+  "action": "save",
+  "extracted": {{
+    "date": null,
+    "amount": 0,
+    "currency": "INR",
+    "merchant": null,
+    "category": null,
+    "account": null,
+    "note": null,
+    "symbol": null,
+    "shares": 0,
+    "price_per_share": 0,
+    "action_trade": null,
+    "fees": 0,
+
+    "liability_type": "Student Loan",
+    "liability_amount": 500000,
+    "installments_total": 0,
+    "installments_paid": 0,
+    "installment_amount": 0,
+    "frequency": "monthly",
+    "due_date": "2025-11-10",
+    "next_due_date": "2025-11-10",
+    "importance_score": 0,
+    "priority": 0,
+    "remaining_amount": 500000,
+    "is_completed": false,
+    "description": "New loan",
+
+    "asset_type": null,
+    "asset_value": 0,
+    "asset_description": null
+  }},
+  "missing": [],
+  "answer_draft": "Logged your student loan.",
+  "fallback_reason": "",
+  "confidence": 0.9
+}}
+
+# ASSET (SAVE) — Income statement mapped to asset
+INPUT: "I have a monthly income of 10000 Rs"
+OUTPUT:
+{{
+  "topic": "finance",
+  "intent": "record_asset",
+  "action": "save",
+  "extracted": {{
+    "date": null,
+    "amount": 0,
+    "currency": "INR",
+    "merchant": null,
+    "category": null,
+    "account": null,
+    "note": null,
+    "symbol": null,
+    "shares": 0,
+    "price_per_share": 0,
+    "action_trade": null,
+    "fees": 0,
+
+    "liability_type": null,
+    "liability_amount": 0,
+    "installments_total": 0,
+    "installments_paid": 0,
+    "installment_amount": 0,
+    "frequency": null,
+    "due_date": null,
+    "next_due_date": null,
+    "importance_score": 0,
+    "priority": 0,
+    "remaining_amount": 0,
+    "is_completed": false,
+    "description": null,
+
+    "asset_type": "Income",
+    "asset_value": 10000,
+    "asset_description": "monthly income"
+  }},
+  "missing": [],
+  "answer_draft": "Logged your monthly income as an asset.",
+  "fallback_reason": "",
+  "confidence": 0.9
+}}
+
+# ASSET (SAVE) — Savings account
+INPUT: "Savings account ₹55,000 for emergencies"
+OUTPUT:
+{{
+  "topic": "finance",
+  "intent": "record_asset",
+  "action": "save",
+  "extracted": {{
+    "date": null,
+    "amount": 0,
+    "currency": "INR",
+    "merchant": null,
+    "category": "savings",
+    "account": null,
+    "note": "emergency fund",
+    "symbol": null,
+    "shares": 0,
+    "price_per_share": 0,
+    "action_trade": null,
+    "fees": 0,
+
+    "liability_type": null,
+    "liability_amount": 0,
+    "installments_total": 0,
+    "installments_paid": 0,
+    "installment_amount": 0,
+    "frequency": null,
+    "due_date": null,
+    "next_due_date": null,
+    "importance_score": 0,
+    "priority": 0,
+    "remaining_amount": 0,
+    "is_completed": false,
+    "description": null,
+
+    "asset_type": "Savings Account",
+    "asset_value": 55000,
+    "asset_description": "Emergency fund"
+  }},
+  "missing": [],
+  "answer_draft": "Logged your savings account.",
+  "fallback_reason": "",
+  "confidence": 0.9
+}}
 """
+
+
 
 # ------------------- LLM call -------------------
 def llm_route_extract(message: str, history: List[dict]) -> dict:
@@ -239,7 +531,6 @@ def llm_route_extract(message: str, history: List[dict]) -> dict:
             "confidence": 0.0,
         }
 
-# ------------------- SQL builder -------------------
 # ------------------- SQL builder -------------------
 def build_sql_and_params(user_id: str, source_text: str, llm: dict):
     x = llm.get("extracted", {}) or {}
@@ -302,16 +593,14 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         ]
         return sql.strip(), params, "trades"
 
-    # ---------------- Liabilities (NEW) ----------------
+    # ---------------- Liabilities ----------------
     if llm.get("intent") == "record_liability":
         # Minimal set required to create a liability row
-        # (Aligns with your policy: type, amount, frequency, due_date)
         req = ["liability_type", "liability_amount", "frequency", "due_date"]
         miss = missing(req)
         if miss:
             raise ValueError(f"missing fields for liability: {miss}")
 
-        # Normalize booleans and numeric fields
         def to_bool(v):
             return 1 if v in (True, 1, "1", "true", "True", "yes", "YES") else 0
 
@@ -330,7 +619,6 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         )
 
         frequency = (x.get("frequency") or "monthly").strip().lower()
-        # Ensure frequency is one of the allowed values, else default to 'monthly'
         if frequency not in ("weekly", "monthly", "quarterly", "yearly", "one_time"):
             frequency = "monthly"
 
@@ -344,20 +632,20 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         priority = int(priority) if priority not in (None, "") else None
 
         remaining_amount = x.get("remaining_amount")
-        # If remaining not provided, derive from liability - (installment * paid) when possible
         if remaining_amount in (None, ""):
             try:
                 if installment_amount is not None and installments_paid is not None:
-                    remaining_amount = max(0.0, float(liability_amount) - float(installment_amount) * float(installments_paid))
+                    remaining_amount = max(
+                        0.0,
+                        float(liability_amount) - float(installment_amount) * float(installments_paid)
+                    )
                 else:
                     remaining_amount = float(liability_amount)
             except Exception:
                 remaining_amount = float(liability_amount)
 
         remaining_amount_cents = to_cents(float(remaining_amount)) if remaining_amount not in (None, "") else None
-
         is_completed = to_bool(x.get("is_completed"))
-
         description = x.get("description")
 
         sql = """
@@ -379,7 +667,6 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
             created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
-
         params = [
             user_id,
             liability_type,
@@ -397,8 +684,41 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
             description,
             created_at,
         ]
-
         return sql.strip(), params, "liabilities"
+
+    # ---------------- Assets (NEW) ----------------
+    if llm.get("intent") == "record_asset":
+        # Minimal set required to create an asset row
+        # Aligns to your schema: asset_type (TEXT), asset_value_cents (INTEGER), asset_description (TEXT), created_at (TEXT)
+        req = ["asset_type", "asset_value"]
+        miss = missing(req)
+        if miss:
+            raise ValueError(f"missing fields for asset: {miss}")
+
+        asset_type = (x.get("asset_type") or "").strip()
+        asset_value = float(x.get("asset_value") or 0.0)
+        asset_description = x.get("asset_description")
+
+        # Use user-provided date for created_at when present; else now
+        created_at_db = x.get("date") or created_at
+
+        sql = """
+        INSERT INTO assets (
+            user_id,
+            asset_type,
+            asset_value_cents,
+            asset_description,
+            created_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """
+        params = [
+            user_id,
+            asset_type,
+            to_cents(asset_value),
+            asset_description,
+            created_at_db,
+        ]
+        return sql.strip(), params, "assets"
 
     # ---------------- No match ----------------
     raise ValueError("No SQL for this intent")
@@ -502,6 +822,8 @@ def chat():
                 reply = "Saved your expense."
             elif table == "trades":
                 reply = "Saved your trade."
+            elif table == "assets":
+                reply = "Saved your asset"
             else:
                 reply = "Saved your liability"
             meta["record_id"] = rid
