@@ -27,12 +27,22 @@ const Dashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      console.log('Fetching dashboard data...');
+      console.log('Token exists:', !!localStorage.getItem('access_token'));
       const data = await getDashboard();
+      console.log('Dashboard data received:', data);
       setDashboardData(data);
       setError(null);
     } catch (err) {
-      setError('Failed to load dashboard data');
-      console.error('Dashboard error:', err);
+      console.error('Dashboard error details:', err);
+      console.error('Error response:', err.response);
+      if (err.response?.status === 401) {
+        // Token is invalid, redirect to login
+        localStorage.removeItem('access_token');
+        navigate('/login');
+        return;
+      }
+      setError(`Failed to load dashboard data: ${err.response?.data?.error || err.message}`);
     } finally {
       setLoading(false);
     }
@@ -105,7 +115,7 @@ const Dashboard = () => {
                 <div className="flex-1">
                   <p className="text-sm font-medium text-gray-600">Monthly Income</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    ${((dashboardData?.user?.monthly_salary || 0) + (dashboardData?.user?.other_income || 0)).toLocaleString()}
+                    ${(dashboardData?.monthly_income || 0).toLocaleString()}
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
