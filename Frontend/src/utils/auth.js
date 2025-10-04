@@ -35,11 +35,21 @@ export const isAuthenticated = () => {
   if (!token) return false;
   
   const decoded = decodeToken(token);
-  if (!decoded) return false;
+  if (!decoded) {
+    // If token can't be decoded, remove it
+    localStorage.removeItem('access_token');
+    return false;
+  }
   
   // Check if token is expired
   const currentTime = Date.now() / 1000;
-  return decoded.exp > currentTime;
+  if (decoded.exp <= currentTime) {
+    // Token is expired, remove it
+    localStorage.removeItem('access_token');
+    return false;
+  }
+  
+  return true;
 };
 
 // Get current user info from stored token

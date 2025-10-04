@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { clearAuth } from '../utils/auth';
 import { clearStoredChatSession } from './Chatbot';
+import { getSecretKey } from '../services/api';
 
 const ProfileMenu = ({ user, onProfileUpdate }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [showSecretKey, setShowSecretKey] = useState(false);
+  const [secretKeyData, setSecretKeyData] = useState({ password: '', secretKey: '', error: '', loading: false });
   const [editData, setEditData] = useState({
     name: user?.name || '',
     currency_preference: user?.currency_preference || 'USD',
@@ -14,7 +18,8 @@ const ProfileMenu = ({ user, onProfileUpdate }) => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
+    clearAuth(); // Clear all authentication data
+    clearStoredChatSession(); // Clear chat session data
     navigate('/login');
   };
 
@@ -29,6 +34,35 @@ const ProfileMenu = ({ user, onProfileUpdate }) => {
     } catch (error) {
       console.error('Failed to update profile:', error);
     }
+  };
+
+  const handleGetSecretKey = async () => {
+    if (!secretKeyData.password) {
+      setSecretKeyData(prev => ({ ...prev, error: 'Password is required' }));
+      return;
+    }
+
+    setSecretKeyData(prev => ({ ...prev, loading: true, error: '' }));
+
+    try {
+      const response = await getSecretKey({ password: secretKeyData.password });
+      setSecretKeyData(prev => ({ 
+        ...prev, 
+        secretKey: response.secret_key, 
+        loading: false 
+      }));
+    } catch (error) {
+      setSecretKeyData(prev => ({ 
+        ...prev, 
+        error: error.response?.data?.error || 'Failed to retrieve secret key',
+        loading: false 
+      }));
+    }
+  };
+
+  const handleCloseSecretKey = () => {
+    setShowSecretKey(false);
+    setSecretKeyData({ password: '', secretKey: '', error: '', loading: false });
   };
 
   const formatCurrency = (amount) => {
@@ -105,10 +139,22 @@ const ProfileMenu = ({ user, onProfileUpdate }) => {
               {/* Action Buttons */}
               <div className="space-y-2">
                 <button
+                  onClick={() => navigate('/profile')}
+                  className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition-colors duration-200"
+                >
+                  Manage Profile & API Key
+                </button>
+                <button
                   onClick={() => setIsEditing(true)}
                   className="w-full bg-primary-blue text-white py-2 rounded hover:bg-dark-blue transition-colors duration-200"
                 >
-                  Edit Profile
+                  Quick Edit Profile
+                </button>
+                <button
+                  onClick={() => setShowSecretKey(true)}
+                  className="w-full bg-yellow-500 text-white py-2 rounded hover:bg-yellow-600 transition-colors duration-200"
+                >
+                  View Secret Key
                 </button>
                 <button
                   onClick={handleLogout}
@@ -185,6 +231,87 @@ const ProfileMenu = ({ user, onProfileUpdate }) => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Secret Key Modal */}
+      {showSecretKey && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m0 0a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2m0 0V7a2 2 0 012-2m6 2a2 2 0 00-2-2m0 0a2 2 0 00-2-2v6a2 2 0 002 2h6M7 7h6v6H7z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">View Secret Key</h3>
+              <p className="text-gray-600 mb-4">Enter your password to view your secret key</p>
+              
+              {!secretKeyData.secretKey ? (
+                <div className="space-y-4">
+                  <div>
+                    <input
+                      type="password"
+                      placeholder="Enter your password"
+                      value={secretKeyData.password}
+                      onChange={(e) => setSecretKeyData(prev => ({ ...prev, password: e.target.value, error: '' }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
+                    />
+                  </div>
+                  
+                  {secretKeyData.error && (
+                    <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm">
+                      {secretKeyData.error}
+                    </div>
+                  )}
+                  
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={handleGetSecretKey}
+                      disabled={secretKeyData.loading}
+                      className="flex-1 bg-primary-blue text-white py-2 px-4 rounded-lg hover:bg-dark-blue disabled:opacity-50 transition-colors duration-200"
+                    >
+                      {secretKeyData.loading ? 'Verifying...' : 'Show Secret Key'}
+                    </button>
+                    <button
+                      onClick={handleCloseSecretKey}
+                      className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-lg hover:bg-gray-600 transition-colors duration-200"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-4">
+                    <p className="text-xl font-mono font-bold text-gray-900 tracking-wider">{secretKeyData.secretKey}</p>
+                  </div>
+                  
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <div className="flex">
+                      <div className="flex-shrink-0">
+                        <svg className="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.464 0L4.35 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                      </div>
+                      <div className="ml-2">
+                        <p className="text-xs text-yellow-700">
+                          Use this secret key to reset your password if you forget it.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={handleCloseSecretKey}
+                    className="w-full bg-primary-blue text-white py-2 px-4 rounded-lg hover:bg-dark-blue transition-colors duration-200"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

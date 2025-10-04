@@ -1,16 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getRecommendations } from '../services/api';
+import { useDataRefresh } from '../contexts/DataRefreshContext';
 
 const RecommendationView = () => {
   const [recommendations, setRecommendations] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { getRefreshTrigger } = useDataRefresh();
 
   useEffect(() => {
     fetchRecommendations();
   }, []);
+
+  // Listen for refresh triggers
+  useEffect(() => {
+    const refreshTrigger = getRefreshTrigger('recommendations');
+    if (refreshTrigger > 0 && recommendations) { // Only refresh if we have initial data
+      fetchRecommendations();
+    }
+  }, [getRefreshTrigger('recommendations')]);
 
   const fetchRecommendations = async () => {
     try {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAssets, getTentativeAssets, createAsset, createTentativeAsset } from '../services/api';
+import { getAssets, getTentativeAssets, createAsset, createTentativeAsset, updateAsset, getAssetTypes } from '../services/api';
+import { useDataRefresh } from '../contexts/DataRefreshContext';
 
 const AssetView = () => {
   const [assets, setAssets] = useState([]);
@@ -8,12 +9,23 @@ const AssetView = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editingAsset, setEditingAsset] = useState(null);
   const [activeTab, setActiveTab] = useState('current');
   const navigate = useNavigate();
+  const { getRefreshTrigger, triggerRefresh } = useDataRefresh();
 
   useEffect(() => {
     fetchAssetData();
   }, []);
+
+  // Listen for refresh triggers
+  useEffect(() => {
+    const refreshTrigger = getRefreshTrigger('assets');
+    if (refreshTrigger > 0 && assets.length >= 0) { // Refresh if we have initial data or empty array
+      fetchAssetData();
+    }
+  }, [getRefreshTrigger('assets')]);
 
   const fetchAssetData = async () => {
     try {
@@ -42,9 +54,29 @@ const AssetView = () => {
       }
       await fetchAssetData();
       setShowAddForm(false);
+      // Trigger refresh for other components
+      triggerRefresh(['assets', 'dashboard']);
     } catch (err) {
       console.error('Failed to add asset:', err);
     }
+  };
+
+  const handleEditAsset = async (assetData) => {
+    try {
+      await updateAsset(editingAsset.id, assetData);
+      await fetchAssetData();
+      setShowEditForm(false);
+      setEditingAsset(null);
+      // Trigger refresh for other components
+      triggerRefresh(['assets', 'dashboard']);
+    } catch (err) {
+      console.error('Failed to update asset:', err);
+    }
+  };
+
+  const openEditForm = (asset) => {
+    setEditingAsset(asset);
+    setShowEditForm(true);
   };
 
   if (loading) {
@@ -118,7 +150,7 @@ const AssetView = () => {
           )}
 
           {activeTab === 'current' ? (
-            <CurrentAssetsTable assets={assets} />
+            <CurrentAssetsTable assets={assets} onEdit={openEditForm} />
           ) : (
             <TentativeAssetsTable assets={tentativeAssets} />
           )}
@@ -133,12 +165,25 @@ const AssetView = () => {
             type={activeTab}
           />
         )}
+
+        {/* Edit Asset Modal */}
+        {showEditForm && editingAsset && (
+          <EditAssetModal
+            isOpen={showEditForm}
+            onClose={() => {
+              setShowEditForm(false);
+              setEditingAsset(null);
+            }}
+            onSave={handleEditAsset}
+            asset={editingAsset}
+          />
+        )}
       </div>
     </div>
   );
 };
 
-const CurrentAssetsTable = ({ assets }) => {
+const CurrentAssetsTable = ({ assets, onEdit }) => {
   if (assets.length === 0) {
     return (
       <div className="text-center py-12">
@@ -167,6 +212,9 @@ const CurrentAssetsTable = ({ assets }) => {
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Description
             </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
@@ -183,6 +231,14 @@ const CurrentAssetsTable = ({ assets }) => {
               </td>
               <td className="px-6 py-4 text-sm text-gray-500">
                 {asset.description || '-'}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                <button
+                  onClick={() => onEdit(asset)}
+                  className="text-primary-blue hover:text-dark-blue bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded mr-2"
+                >
+                  Edit
+                </button>
               </td>
             </tr>
           ))}
@@ -249,63 +305,144 @@ const TentativeAssetsTable = ({ assets }) => {
 const AddAssetModal = ({ isOpen, onClose, onAdd, type }) => {
   const [formData, setFormData] = useState({
     asset_type: '',
+    custom_asset_type: '',
     amount: '',
     date: '',
     description: ''
   });
+  const [availableAssetTypes, setAvailableAssetTypes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showCustomType, setShowCustomType] = useState(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const assetData = {
-      asset_type: formData.asset_type,
-      description: formData.description
-    };
-
-    if (type === 'current') {
-      assetData.asset_value = parseFloat(formData.amount);
-      assetData.date_received = formData.date;
-    } else {
-      assetData.asset_amount = parseFloat(formData.amount);
-      assetData.expected_date = formData.date;
+  useEffect(() => {
+    if (isOpen) {
+      fetchAssetTypes();
+      // Reset form when modal opens
+      setFormData({
+        asset_type: '',
+        custom_asset_type: '',
+        amount: '',
+        date: '',
+        description: ''
+      });
+      setShowCustomType(false);
     }
+  }, [isOpen]);
 
-    onAdd(assetData);
+  const fetchAssetTypes = async () => {
+    try {
+      const response = await getAssetTypes();
+      setAvailableAssetTypes(response.asset_types || []);
+    } catch (error) {
+      console.error('Failed to fetch asset types:', error);
+      // Fallback to default types
+      setAvailableAssetTypes([
+        "Cash",
+        "Savings Account", 
+        "Checking Account",
+        "Investment Account",
+        "Real Estate",
+        "Stock Portfolio",
+        "Retirement Fund",
+        "Vehicle",
+        "Other"
+      ]);
+    }
+  };
+
+  const handleAssetTypeChange = (value) => {
+    setFormData({...formData, asset_type: value});
+    setShowCustomType(value === 'Other' || value === 'Custom');
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    try {
+      const finalAssetType = showCustomType && formData.custom_asset_type 
+        ? formData.custom_asset_type 
+        : formData.asset_type;
+
+      const assetData = {
+        asset_type: finalAssetType,
+        asset_description: formData.description,
+        account: finalAssetType, // Use asset type as account name for now
+        is_liquid: true // Default to liquid assets
+      };
+
+      if (type === 'current') {
+        assetData.asset_value = parseFloat(formData.amount);
+        assetData.date_received = formData.date;
+      } else {
+        assetData.asset_amount = parseFloat(formData.amount);
+        assetData.expected_date = formData.date;
+      }
+
+      await onAdd(assetData);
+    } catch (error) {
+      console.error('Failed to add asset:', error);
+      alert('Failed to add asset. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-96 overflow-y-auto">
         <h3 className="text-lg font-semibold mb-4">
           Add {type === 'current' ? 'Current' : 'Expected'} Asset
         </h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Asset Type</label>
-            <input
-              type="text"
+            <select
               required
               value={formData.asset_type}
-              onChange={(e) => setFormData({...formData, asset_type: e.target.value})}
+              onChange={(e) => handleAssetTypeChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
-              placeholder="e.g., Salary, Investment, Property"
-            />
+            >
+              <option value="">Select asset type</option>
+              {availableAssetTypes.map((type, index) => (
+                <option key={index} value={type}>{type}</option>
+              ))}
+              <option value="Custom">+ Add Custom Type</option>
+            </select>
           </div>
+
+          {showCustomType && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Custom Asset Type</label>
+              <input
+                type="text"
+                required
+                value={formData.custom_asset_type}
+                onChange={(e) => setFormData({...formData, custom_asset_type: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
+                placeholder="Enter custom asset type"
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {type === 'current' ? 'Asset Value' : 'Expected Amount'}
+              {type === 'current' ? 'Asset Value' : 'Expected Amount'} ($)
             </label>
             <input
               type="number"
               required
               step="0.01"
+              min="0"
               value={formData.amount}
               onChange={(e) => setFormData({...formData, amount: e.target.value})}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
               placeholder="0.00"
             />
           </div>
+          
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {type === 'current' ? 'Date Received' : 'Expected Date'}
@@ -318,27 +455,203 @@ const AddAssetModal = ({ isOpen, onClose, onAdd, type }) => {
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
             />
           </div>
+          
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Asset Description</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({...formData, description: e.target.value})}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
-              rows="2"
-              placeholder="Additional notes about this asset"
+              rows="3"
+              placeholder="Describe the asset (optional)"
             />
           </div>
+          
           <div className="flex space-x-3">
             <button
               type="submit"
-              className="flex-1 bg-primary-blue text-white py-2 rounded hover:bg-dark-blue transition-colors duration-200"
+              disabled={loading}
+              className="flex-1 bg-primary-blue text-white py-2 rounded hover:bg-dark-blue transition-colors duration-200 disabled:opacity-50"
             >
-              Add Asset
+              {loading ? 'Adding...' : 'Add Asset'}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="flex-1 bg-gray-500 text-white py-2 rounded hover:bg-gray-600 transition-colors duration-200"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const EditAssetModal = ({ isOpen, onClose, onSave, asset }) => {
+  const [formData, setFormData] = useState({
+    asset_type: '',
+    asset_value: '',
+    date_received: '',
+    asset_description: ''
+  });
+  const [availableAssetTypes, setAvailableAssetTypes] = useState([]);
+  const [isCustomType, setIsCustomType] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && asset) {
+      // Pre-populate form with asset data
+      setFormData({
+        asset_type: asset.asset_type || '',
+        asset_value: asset.asset_value || '',
+        date_received: asset.date_received || '',
+        asset_description: asset.asset_description || ''
+      });
+      fetchAssetTypes();
+    }
+  }, [isOpen, asset]);
+
+  const fetchAssetTypes = async () => {
+    try {
+      const response = await getAssetTypes();
+      const types = response.asset_types || [];
+      setAvailableAssetTypes(types);
+      
+      // Check if current asset type is in the list
+      if (asset && asset.asset_type && !types.includes(asset.asset_type)) {
+        setIsCustomType(true);
+      }
+    } catch (error) {
+      console.error('Failed to fetch asset types:', error);
+    }
+  };
+
+  const handleAssetTypeChange = (e) => {
+    const value = e.target.value;
+    if (value === 'custom') {
+      setIsCustomType(true);
+      setFormData({...formData, asset_type: ''});
+    } else {
+      setIsCustomType(false);
+      setFormData({...formData, asset_type: value});
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const assetData = {
+        asset_type: formData.asset_type,
+        asset_value: parseFloat(formData.asset_value),
+        date_received: formData.date_received,
+        asset_description: formData.asset_description
+      };
+
+      await onSave(assetData);
+    } catch (error) {
+      console.error('Failed to update asset:', error);
+      alert('Failed to update asset. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-96 overflow-y-auto">
+        <h3 className="text-lg font-semibold mb-4">Edit Asset</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Asset Type</label>
+            {isCustomType ? (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  required
+                  value={formData.asset_type}
+                  onChange={(e) => setFormData({...formData, asset_type: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
+                  placeholder="Enter asset type"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsCustomType(false)}
+                  className="text-sm text-primary-blue hover:text-dark-blue"
+                >
+                  Choose from list instead
+                </button>
+              </div>
+            ) : (
+              <select
+                required
+                value={formData.asset_type}
+                onChange={handleAssetTypeChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
+              >
+                <option value="">Select asset type</option>
+                {availableAssetTypes.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+                <option value="custom">Other (specify)</option>
+              </select>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Asset Value ($)</label>
+            <input
+              type="number"
+              required
+              step="0.01"
+              min="0"
+              value={formData.asset_value}
+              onChange={(e) => setFormData({...formData, asset_value: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
+              placeholder="0.00"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date Received</label>
+            <input
+              type="date"
+              required
+              value={formData.date_received}
+              onChange={(e) => setFormData({...formData, date_received: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Asset Description</label>
+            <textarea
+              value={formData.asset_description}
+              onChange={(e) => setFormData({...formData, asset_description: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-blue"
+              rows="3"
+              placeholder="Describe your asset"
+            />
+          </div>
+
+          <div className="flex space-x-3">
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 bg-primary-blue text-white py-2 rounded hover:bg-dark-blue transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Updating...' : 'Update Asset'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="flex-1 bg-gray-500 text-white py-2 rounded hover:bg-gray-600 transition-colors duration-200 disabled:opacity-50"
             >
               Cancel
             </button>
