@@ -53,18 +53,23 @@ export const login = USE_MOCK_DATA ?
     return response.data;
   };
 
+export const getProfile = async () => {
+  const response = await api.get('/api/profile');
+  return response.data;
+};
+
+export const updateProfile = async (profileData) => {
+  const response = await api.put('/api/profile', profileData);
+  return response.data;
+};
+
 export const resetPassword = async (resetData) => {
   const response = await api.post('/api/auth/reset-password', resetData);
   return response.data;
 };
 
-export const getProfile = async () => {
-  const response = await api.get('/api/auth/profile');
-  return response.data;
-};
-
-export const updateProfile = async (profileData) => {
-  const response = await api.put('/api/auth/profile', profileData);
+export const getSecretKey = async (passwordData) => {
+  const response = await api.post('/api/auth/get-secret-key', passwordData);
   return response.data;
 };
 
@@ -90,6 +95,16 @@ export const createAsset = USE_MOCK_DATA ?
     const response = await api.post('/api/assets', assetData);
     return response.data;
   };
+
+export const updateAsset = async (assetId, assetData) => {
+  const response = await api.put(`/api/assets/${assetId}`, assetData);
+  return response.data;
+};
+
+export const getAssetTypes = async () => {
+  const response = await api.get('/api/assets/types');
+  return response.data;
+};
 
 export const getTentativeAssets = USE_MOCK_DATA ? 
   mockAPI.getTentativeAssets : 
@@ -118,12 +133,27 @@ export const createLiability = USE_MOCK_DATA ?
     return response.data;
   };
 
+export const updateLiability = async (liabilityId, liabilityData) => {
+  const response = await api.put(`/api/liabilities/${liabilityId}`, liabilityData);
+  return response.data;
+};
+
+export const getLiabilityTypes = async () => {
+  const response = await api.get('/api/liabilities/types');
+  return response.data;
+};
+
 export const payInstallment = USE_MOCK_DATA ? 
   mockAPI.payInstallment : 
   async (liabilityId) => {
     const response = await api.post(`/api/liabilities/${liabilityId}/pay`);
     return response.data;
   };
+
+export const makeLiabilityPayment = async (liabilityId, paymentData) => {
+  const response = await api.post(`/api/liabilities/${liabilityId}/pay`, paymentData);
+  return response.data;
+};
 
 // Recommendation API calls
 export const getRecommendations = USE_MOCK_DATA ? 

@@ -17,8 +17,7 @@ JWT_ALGORITHM = "HS256"
 
 # lazy import to avoid import-time errors if package missing
 from cerebras.cloud.sdk import Cerebras
-client = Cerebras(
-        api_key="csk-8682t4mpjnxckyf5vwhh982e4tpm5yxkxft3tcv6dmy32mh6",)
+# No global client - each user uses their own API key
 LLM_MODEL = "llama-4-scout-17b-16e-instruct"
 
 app = Flask(__name__)
@@ -42,6 +41,14 @@ def currency_clean(cur: Optional[str]) -> str:
     if not cur: return "USD"
     cur = cur.strip().upper()
     return {"US$":"USD","$":"USD"}.get(cur, cur)
+
+def generate_secret_key() -> str:
+    """Generate a secure 12-character secret key"""
+    import secrets
+    import string
+    # Generate a secure random string with uppercase, lowercase, and digits
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(12))
 
 # ------------------- JWT helpers -------------------
 def generate_token(user_id: str) -> str:
@@ -100,12 +107,28 @@ def init_db():
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT,
+      secret_key TEXT,
+      cerebras_api_key TEXT,
       monthly_income_cents INTEGER DEFAULT 0,
       currency_preference TEXT DEFAULT 'USD',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
     """)
+    
+    # Add secret_key column if it doesn't exist (for existing databases)
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN secret_key TEXT")
+    except sqlite3.OperationalError:
+        # Column already exists
+        pass
+    
+    # Add cerebras_api_key column if it doesn't exist (for existing databases)
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN cerebras_api_key TEXT")
+    except sqlite3.OperationalError:
+        # Column already exists
+        pass
     
     # Assets table for tracking user assets
     cur.execute("""
@@ -240,17 +263,132 @@ You are FinanceRouter, a gatekeeping and extraction model for a finance-only ass
 - Asset management: adding savings accounts, investments, property values.
 - Liability tracking: loans, credit cards, rent, payment obligations.
 - Income reporting: salary updates, bonuses, additional income sources.
+- Status queries: "what are my liabilities", "show my current debts", "what do I owe".
 
 ### DISALLOWED
 - Anything outside finance (coding, recipes, travel, jokes, politics, etc.).
 - Medical, legal, or other professional advice.
+
+### INCOME vs EXPENSE CLASSIFICATION
+CRITICAL: Distinguish between money coming IN vs money going OUT:
+
+**INCOME/ASSET ADDITION** (money received):
+- "I received $X", "got $X", "friend gave me $X", "earned $X", "won $X"
+- "my salary", "bonus", "refund", "payment from client"
+- Use intent="add_asset" for cash received or intent="update_income" for regular income
+
+**EXPENSES** (money spent):
+- "I spent $X", "paid $X", "bought X for $Y", "cost me $X"
+- "lunch cost", "shopping", "bills", "rent payment"
+- Use intent="record_expense" only when money is going OUT
+
+### PAYMENT METHOD REQUIREMENTS
+For expense recording, a payment method (account) is REQUIRED. Look for:
+- Payment methods: "cash", "credit card", "debit card", "checking account", "savings account", "paypal", etc.
+- Account names: "Bank of America", "Chase Checking", "Wells Fargo Savings", etc.
+- Card types: "Visa", "Mastercard", "American Express", etc.
+
+If no payment method is mentioned for EXPENSES, set action="clarify" and include "account" in missing fields.
+
+### LIABILITY CLASSIFICATION
+CRITICAL: Distinguish between one-time bills vs recurring EMI-based liabilities:
+
+**ONE-TIME BILLS** (single payment):
+- "light bill", "electricity bill", "water bill", "gas bill", "internet bill"
+- "phone bill", "medical bill", "insurance premium", "tax payment"
+- "rent for this month", "utility bill", "subscription fee"
+- For these: frequency="one-time", installment_amount=total_amount, installments_total=1
+
+**EMI/RECURRING LIABILITIES** (multiple payments):
+- "loan", "EMI", "mortgage", "car loan", "student loan"
+- "credit card debt", "personal loan", "home loan"
+- "monthly rent", "recurring payment", "installments"
+- For these: require installment_amount and frequency (monthly/weekly/quarterly)
+
+### PRIORITY RECOGNITION
+Extract priority information from user messages:
+
+**HIGH PRIORITY** (80-100):
+- "urgent", "important", "high priority", "critical", "must pay", "essential"
+- "very important", "top priority", "highest priority", "emergency"
+
+**MEDIUM PRIORITY** (50-79):
+- "medium priority", "normal", "regular", "standard", "moderate"
+- "should pay", "important but not urgent"
+
+**LOW PRIORITY** (1-49):
+- "low priority", "can wait", "not urgent", "flexible", "when possible"
+- "least important", "optional", "defer if needed"
+
+**PRIORITY SCALE**:
+- Extract explicit numbers: "priority 80", "80% priority", "8/10 priority"
+- Convert 1-10 scale to 1-100: multiply by 10
+- Default priority: 50 (if not mentioned)
+
+### LIABILITY DECISION LOGIC
+1) If user mentions bill types (electricity, water, phone, etc.) → assume one-time
+2) If user mentions loan/EMI/mortgage → require installment details
+3) If unclear → ask "Is this a one-time bill or recurring EMI/loan?"
+4) Extract priority from keywords or explicit values (default: 50)
+
+### UPDATE RECOGNITION
+Identify when user wants to modify existing records:
+
+**ASSET UPDATES** (intent: "update_asset"):
+- "update my savings account to $5000", "change my car value to $25000"
+- "modify my investment description", "update the date I received my bonus"
+- Required: asset_type (or close description)
+- Optional: asset_value, asset_description, date_received
+
+**LIABILITY UPDATES** (intent: "update_liability"):  
+- "change my car loan amount to $15000", "update my rent to $1200"
+- "modify my credit card due date", "change mortgage interest rate to 4.5%"
+- Required: liability_type (or close description)
+- Optional: total_amount, installment_amount, frequency, due_date, priority_score, interest_rate, description
+
+**UPDATE KEYWORDS**:
+- "update", "change", "modify", "edit", "adjust", "revise", "correct"
+- "set [asset/liability] to", "make my [item] worth", "fix my [item]"
+
+### PAYMENT RECOGNITION
+Identify when user wants to make payments on liabilities:
+
+**LIABILITY PAYMENTS** (intent: "pay_liability"):
+- "pay off my credit card", "make payment on car loan", "pay my mortgage"
+- "pay $500 on student loan", "pay full amount on credit card"
+- "make installment payment", "pay one time", "pay remaining balance"
+- Required: liability_type (or close description)
+- Optional: payment_amount, payment_type ("installment" | "full" | "partial"), account (payment source)
+
+**PAYMENT TYPES**:
+- INSTALLMENT: "pay installment", "make monthly payment", "pay regular amount"
+- FULL PAYOFF: "pay off completely", "pay full amount", "pay remaining balance", "close the loan"
+- PARTIAL: "pay $X toward", "make $X payment", specific amount mentioned
+
+**PAYMENT KEYWORDS**:
+- "pay", "pay off", "make payment", "settle", "clear", "close"
+- "installment", "monthly payment", "full amount", "remaining balance"
+- "from my [account]", "using [payment method]"
+
+### LIABILITY QUERIES
+Identify when user wants to check current liability status:
+
+**LIABILITY STATUS QUERIES** (intent: "query_liabilities"):
+- "what are my liabilities", "show my current debts", "what do I owe"
+- "list my loans", "show my remaining balances", "what bills do I have"
+- "how much do I still owe", "what's my debt status", "liability summary"
+- Use current context data to provide accurate, up-to-date information
+
+**QUERY KEYWORDS**:
+- "what", "show", "list", "how much", "status", "summary", "remaining", "current"
+- "do I owe", "do I have", "are my", "debts", "liabilities", "loans", "bills"
 
 ### OUTPUT FORMAT
 Return **ONLY** valid JSON in this schema:
 
 {{
   "topic": "finance" | "not_finance" | "unknown",
-  "intent": "record_expense" | "record_trade" | "add_asset" | "add_liability" | "update_income" | "ask_finance_question" | "other",
+  "intent": "record_expense" | "record_trade" | "add_asset" | "add_liability" | "update_income" | "update_liability_priority" | "update_asset" | "update_liability" | "pay_liability" | "query_liabilities" | "ask_finance_question" | "other",
   "action": "save" | "clarify" | "reject" | "answer",
   "extracted": {{
     "date": "YYYY-MM-DD | null",
@@ -280,6 +418,9 @@ Return **ONLY** valid JSON in this schema:
     "interest_rate": 0.0,
     "priority_score": 50,
     
+    "payment_amount": 0.0,
+    "payment_type": "installment | full | partial | null",
+    
     "income_type": "string | null (e.g., 'salary', 'bonus', 'investment')",
     "income_frequency": "monthly | weekly | yearly | one-time | null",
     "monthly_income": 0.0
@@ -293,51 +434,165 @@ Return **ONLY** valid JSON in this schema:
 ### DECISION RULES
 1) If the message is off-topic or nonsense → topic="not_finance", action="reject".
 2) If it's a finance question (not a loggable event) → intent="ask_finance_question", action="answer".
-3) For an EXPENSE event, required: amount, currency, date. merchant optional.
-4) For a TRADE event, required: action_trade, symbol, shares, price_per_share, currency, date.
-5) If required fields are missing → action="clarify" and enumerate "missing".
-6) Only set action="save" when all required fields exist and are coherent.
-7) Use today's date {datetime.date.today().isoformat()} only if the user clearly implies "today".
-8) Keep answers brief and neutral.
-9) Output JSON only. No prose outside the JSON.
+3) For INCOME/ASSET events (money received), required: amount, currency, date. Use intent="add_asset" for cash/asset additions. asset_type will default to "Cash".
+4) For EXPENSE events (money spent), required: amount, currency, date, account (payment method). merchant optional.
+5) For LIABILITY events:
+   - ONE-TIME BILLS: required: liability_type, total_amount, due_date. Auto-set frequency="one-time", installment_amount=total_amount.
+   - EMI/LOANS: required: liability_type, total_amount, installment_amount, frequency.
+6) For TRADE events, required: action_trade, symbol, shares, price_per_share, currency, date.
+7) For PRIORITY UPDATE events (update_liability_priority): required: liability_type (or description), priority_score.
+8) For ASSET UPDATE events (update_asset): required: asset_type (or description), and at least one field to update (asset_value, asset_description, date_received).
+9) For LIABILITY UPDATE events (update_liability): required: liability_type (or description), and at least one field to update (total_amount, installment_amount, frequency, due_date, priority_score, interest_rate, description).
+10) For PAYMENT events (pay_liability): required: liability_type (or description), payment_type. Optional: payment_amount, account (payment source).
+11) For LIABILITY QUERIES (query_liabilities): Use current context data to answer. Set action="answer" and provide summary from current user context.
+12) If required fields are missing → action="clarify" and enumerate "missing".
+13) Only set action="save" when all required fields exist and are coherent.
+14) Use today's date {datetime.date.today().isoformat()} only if the user clearly implies "today".
+15) Keep answers brief and neutral.
+16) Output JSON only. No prose outside the JSON.
 """
 
+def get_user_context_for_llm(user_id: str, cursor) -> str:
+    """Generate current user context for LLM including liabilities and assets"""
+    context_parts = []
+    
+    # Get current liabilities
+    cursor.execute("""
+        SELECT liability_type, remaining_amount_cents, installment_amount_cents, 
+               installments_paid, installments_total, is_completed, priority_score
+        FROM liabilities 
+        WHERE user_id = ? 
+        ORDER BY priority_score DESC, remaining_amount_cents DESC
+    """, (user_id,))
+    
+    liabilities = cursor.fetchall()
+    if liabilities:
+        context_parts.append("CURRENT LIABILITIES:")
+        for liability in liabilities:
+            status = "COMPLETED" if liability["is_completed"] else "ACTIVE"
+            remaining = liability["remaining_amount_cents"] / 100
+            installment = liability["installment_amount_cents"] / 100
+            progress = f"{liability['installments_paid']}/{liability['installments_total']}"
+            priority = liability["priority_score"]
+            
+            context_parts.append(f"- {liability['liability_type']}: ${remaining:.2f} remaining, ${installment:.2f} installments, {progress} paid, Priority: {priority}/100, Status: {status}")
+    
+    # Get current assets
+    cursor.execute("""
+        SELECT asset_type, asset_value_cents, account, is_liquid
+        FROM assets 
+        WHERE user_id = ? 
+        ORDER BY asset_value_cents DESC
+    """, (user_id,))
+    
+    assets = cursor.fetchall()
+    if assets:
+        context_parts.append("\nCURRENT ASSETS:")
+        for asset in assets:
+            value = asset["asset_value_cents"] / 100
+            liquidity = "Liquid" if asset["is_liquid"] else "Illiquid"
+            account = asset["account"] or asset["asset_type"]
+            context_parts.append(f"- {asset['asset_type']} ({account}): ${value:.2f} - {liquidity}")
+    
+    return "\n".join(context_parts) if context_parts else ""
+
 # ------------------- LLM call -------------------
-def llm_route_extract(message: str, history: List[dict]) -> dict:
+def llm_route_extract(message: str, history: List[dict], user_context: str = "", user_api_key: str = None) -> dict:
     """
     Calls an OpenAI-compatible/Cerebras Chat Completions API and enforces JSON output.
     history: list of {"role": "user"|"assistant", "content": str}
+    user_context: real-time user data for context (liabilities, assets, etc.)
+    user_api_key: user's Cerebras API key
     """
-    messages = [{"role": "system", "content": SYSTEM_POLICY}]
+    # Check if user has provided API key - require for ALL queries
+    if not user_api_key:
+        return {
+            "topic": "finance",
+            "intent": "api_key_required",
+            "action": "reject",
+            "extracted": {},
+            "missing": ["api_key"],
+            "answer_draft": "🔑 To use the Personal Finance Assistant, please configure your Cerebras API key in your profile settings first.\n\n📍 How to get your API key:\n1. Visit https://cloud.cerebras.ai/\n2. Sign up for a free account\n3. Generate your API key\n4. Go to your Profile in the app and add the API key\n\nOnce configured, I'll be able to help you with all your questions and financial transactions! 💰",
+            "fallback_reason": "No API key provided",
+            "confidence": 0.9,
+        }
+    
+    # Create Cerebras client with user's API key
+    try:
+        user_client = Cerebras(api_key=user_api_key)
+    except Exception as e:
+        return {
+            "topic": "finance",
+            "intent": "invalid_api_key",
+            "action": "reject",
+            "extracted": {},
+            "missing": ["valid_api_key"],
+            "answer_draft": "❌ Invalid Cerebras API key detected. Please check your API key in profile settings.\n\n🔧 To fix this:\n1. Go to your Profile settings\n2. Verify your API key is correct\n3. Get a new key from https://cloud.cerebras.ai/ if needed\n\nOnce you have a valid API key, I'll be ready to help with your financial questions! 🚀",
+            "fallback_reason": f"Invalid API key: {e}",
+            "confidence": 0.9,
+        }
+    
+    # Enhanced system policy with real-time context
+    enhanced_policy = SYSTEM_POLICY
+    if user_context:
+        enhanced_policy += f"\n\n### CURRENT USER CONTEXT\n{user_context}\n\nUse this current data when responding to queries about existing liabilities, assets, or account balances."
+    
+    messages = [{"role": "system", "content": enhanced_policy}]
     # include recent history for context (last 20 turns)
     for m in history[-20:]:
         if m.get("role") in ("user", "assistant"):
             messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": message})
 
-    resp = client.chat.completions.create(
-        model=LLM_MODEL,
-        response_format={"type": "json_object"},
-        temperature=0.1,
-        top_p=0.9,
-        messages=messages,
-    )
-    content = resp.choices[0].message.content
     try:
-        parsed = json.loads(content)
-        return parsed
+        resp = user_client.chat.completions.create(
+            model=LLM_MODEL,
+            response_format={"type": "json_object"},
+            temperature=0.1,
+            top_p=0.9,
+            messages=messages,
+        )
+        content = resp.choices[0].message.content
+        try:
+            parsed = json.loads(content)
+            return parsed
+        except Exception as e:
+            # Fallback: reject gracefully
+            return {
+                "topic": "unknown",
+                "intent": "other",
+                "action": "reject",
+                "extracted": {},
+                "missing": [],
+                "answer_draft": None,
+                "fallback_reason": f"Parse error: {e}",
+                "confidence": 0.0,
+            }
     except Exception as e:
-        # Fallback: reject gracefully
-        return {
-            "topic": "unknown",
-            "intent": "other",
-            "action": "reject",
-            "extracted": {},
-            "missing": [],
-            "answer_draft": None,
-            "fallback_reason": f"Parse error: {e}",
-            "confidence": 0.0,
-        }
+        # Handle API call errors
+        error_message = str(e)
+        if "invalid" in error_message.lower() or "unauthorized" in error_message.lower():
+            return {
+                "topic": "not_finance",
+                "intent": "other",
+                "action": "reject",
+                "extracted": {},
+                "missing": [],
+                "answer_draft": "Your Cerebras API key appears to be invalid. Please update your API key in profile settings or get a new one from https://cloud.cerebras.ai/",
+                "fallback_reason": f"API error: {error_message}",
+                "confidence": 0.0,
+            }
+        else:
+            return {
+                "topic": "unknown",
+                "intent": "other",
+                "action": "reject",
+                "extracted": {},
+                "missing": [],
+                "answer_draft": "I'm having trouble connecting to the AI service. Please try again in a moment.",
+                "fallback_reason": f"API error: {error_message}",
+                "confidence": 0.0,
+            }
 
 # ------------------- SQL builder -------------------
 def build_sql_and_params(user_id: str, source_text: str, llm: dict):
@@ -349,7 +604,7 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         return miss
 
     if llm.get("intent") == "record_expense":
-        req = ["amount", "currency", "date"]
+        req = ["amount", "currency", "date", "account"]
         miss = missing(req)
         if miss:
             raise ValueError(f"missing fields for expense: {miss}")
@@ -400,10 +655,15 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         return sql.strip(), params, "trades"
 
     if llm.get("intent") == "add_asset":
-        req = ["asset_type", "asset_value", "currency"]
+        req = ["asset_value", "currency"]
         miss = missing(req)
         if miss:
             raise ValueError(f"missing fields for asset: {miss}")
+        
+        # Infer asset type if not provided - default to Cash for money received
+        asset_type = x.get("asset_type") or "Cash"
+        account = x.get("account") or asset_type
+        
         sql = """
         INSERT INTO assets (user_id, asset_type, asset_value_cents, asset_description,
                            account, is_liquid, date_received, created_at, updated_at)
@@ -411,10 +671,10 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         """
         params = [
             user_id,
-            x.get("asset_type"),
+            asset_type,
             to_cents(float(x.get("asset_value"))),
             x.get("asset_description") or x.get("note"),
-            x.get("account"),
+            account,
             x.get("is_liquid", True),
             x.get("date") or created_at.split('T')[0],  # Use date or current date
             created_at,
@@ -423,20 +683,75 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
         return sql.strip(), params, "assets"
 
     if llm.get("intent") == "add_liability":
-        req = ["liability_type", "total_amount", "installment_amount", "frequency"]
-        miss = missing(req)
-        if miss:
-            raise ValueError(f"missing fields for liability: {miss}")
+        # Check if this is a one-time bill or recurring EMI
+        liability_type = x.get("liability_type", "").lower()
+        frequency = x.get("frequency", "").lower()
+        
+        # Identify one-time bills
+        one_time_keywords = ["bill", "electricity", "water", "gas", "internet", "phone", "medical", "insurance", "premium", "tax", "utility", "subscription"]
+        is_one_time_bill = any(keyword in liability_type for keyword in one_time_keywords) or frequency == "one-time"
+        
+        if is_one_time_bill:
+            # For one-time bills, only require basic fields
+            req = ["liability_type", "total_amount"]
+            miss = missing(req)
+            if miss:
+                raise ValueError(f"missing fields for one-time bill: {miss}")
+            
+            # Set defaults for one-time bills
+            total_amount = float(x.get("total_amount"))
+            installment_amount = total_amount  # Full amount in one payment
+            frequency = "one-time"
+            installments_total = 1
+        else:
+            # For EMI/loans, require installment details
+            req = ["liability_type", "total_amount", "installment_amount", "frequency"]
+            miss = missing(req)
+            if miss:
+                raise ValueError(f"missing fields for EMI/loan: {miss}")
+            
+            total_amount = float(x.get("total_amount"))
+            installment_amount = float(x.get("installment_amount"))
+            frequency = x.get("frequency")
+            installments_total = int(total_amount / installment_amount) if installment_amount > 0 else 1
+        
+        # Common processing for both types
+        remaining_amount = float(x.get("remaining_amount", total_amount))
+        
+        # Priority processing with smart defaults
+        priority_score = x.get("priority_score", 50)  # Default to 50
+        
+        # Try to extract priority from user input if not explicitly set
+        if priority_score == 50:  # Only auto-detect if not explicitly provided
+            # Check for explicit priority values
+            if x.get("priority"):
+                try:
+                    priority_value = float(x.get("priority"))
+                    if 1 <= priority_value <= 10:  # 1-10 scale, convert to 1-100
+                        priority_score = int(priority_value * 10)
+                    elif 1 <= priority_value <= 100:  # Already 1-100 scale
+                        priority_score = int(priority_value)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Auto-assign priority based on liability type if still default
+            if priority_score == 50:
+                liability_lower = liability_type.lower()
+                if any(keyword in liability_lower for keyword in ["rent", "mortgage", "utilities", "electricity", "water", "gas"]):
+                    priority_score = 85  # High priority for essential bills
+                elif any(keyword in liability_lower for keyword in ["loan", "emi", "credit card"]):
+                    priority_score = 70  # Medium-high for debts
+                elif any(keyword in liability_lower for keyword in ["insurance", "subscription", "entertainment"]):
+                    priority_score = 40  # Lower priority for optional expenses
+        
+        # Ensure priority is within valid range
+        priority_score = max(1, min(100, int(priority_score)))
         
         # If due_date not provided, default to next month
         due_date = x.get("due_date")
         if not due_date:
             next_month = datetime.date.today() + datetime.timedelta(days=30)
             due_date = next_month.isoformat()
-        
-        total_amount = float(x.get("total_amount"))
-        remaining_amount = float(x.get("remaining_amount", total_amount))
-        installment_amount = float(x.get("installment_amount"))
         
         sql = """
         INSERT INTO liabilities (user_id, liability_type, total_amount_cents, remaining_amount_cents,
@@ -445,7 +760,6 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
                                is_completed, description, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
-        installments_total = int(total_amount / installment_amount) if installment_amount > 0 else 1
         params = [
             user_id,
             x.get("liability_type"),
@@ -454,11 +768,11 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
             to_cents(installment_amount),
             installments_total,
             0,  # installments_paid
-            x.get("frequency"),
+            frequency,  # Use calculated frequency
             due_date,
             due_date,  # next_due_date same as due_date initially
             float(x.get("interest_rate", 0.0)),
-            int(x.get("priority_score", 70)),
+            priority_score,  # Use calculated priority score
             False,  # is_completed
             x.get("note") or x.get("asset_description"),
             created_at,
@@ -506,7 +820,347 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
             ]
             return sql.strip(), params, "income"
 
+    if llm.get("intent") == "update_liability_priority":
+        # Update priority for existing liability
+        req = ["liability_type", "priority_score"]
+        miss = missing(req)
+        if miss:
+            raise ValueError(f"missing fields for priority update: {miss}")
+        
+        # Extract priority from LLM response or user input
+        priority_score = x.get("priority_score", 50)
+        
+        # Process priority keywords if score is still default
+        if priority_score == 50:
+            message_lower = (source_text or "").lower()
+            if any(word in message_lower for word in ["urgent", "critical", "important", "high priority", "emergency", "must pay"]):
+                priority_score = 85
+            elif any(word in message_lower for word in ["medium priority", "normal", "regular", "standard", "moderate"]):
+                priority_score = 65
+            elif any(word in message_lower for word in ["low priority", "can wait", "not urgent", "flexible", "optional"]):
+                priority_score = 25
+        
+        # Ensure priority is within valid range
+        priority_score = max(1, min(100, int(priority_score)))
+        
+        liability_type = x.get("liability_type")
+        sql = """
+        UPDATE liabilities 
+        SET priority_score = ?, updated_at = ?
+        WHERE user_id = ? AND LOWER(liability_type) LIKE LOWER(?)
+        """
+        params = [
+            priority_score,
+            created_at,
+            user_id,
+            f"%{liability_type}%"
+        ]
+        return sql.strip(), params, "liabilities"
+
+    if llm.get("intent") == "update_asset":
+        # Update existing asset
+        req = ["asset_type"]
+        miss = missing(req)
+        if miss:
+            raise ValueError(f"missing fields for asset update: {miss}")
+        
+        asset_type = x.get("asset_type")
+        updates = []
+        params = []
+        
+        # Build dynamic update query based on provided fields
+        if x.get("asset_value") is not None:
+            updates.append("asset_value_cents = ?")
+            params.append(to_cents(float(x.get("asset_value"))))
+        
+        if x.get("asset_description") is not None:
+            updates.append("asset_description = ?")
+            params.append(x.get("asset_description"))
+        
+        if x.get("date_received"):
+            updates.append("date_received = ?")
+            params.append(x.get("date_received"))
+        
+        if not updates:
+            raise ValueError("No fields to update for asset")
+        
+        updates.append("updated_at = ?")
+        params.append(created_at)
+        
+        # Add WHERE clause parameters
+        params.extend([user_id, f"%{asset_type}%"])
+        
+        sql = f"""
+        UPDATE assets 
+        SET {', '.join(updates)}
+        WHERE user_id = ? AND LOWER(asset_type) LIKE LOWER(?)
+        """
+        return sql.strip(), params, "assets"
+
+    if llm.get("intent") == "update_liability":
+        # Update existing liability
+        req = ["liability_type"]
+        miss = missing(req)
+        if miss:
+            raise ValueError(f"missing fields for liability update: {miss}")
+        
+        liability_type = x.get("liability_type")
+        updates = []
+        params = []
+        
+        # Build dynamic update query based on provided fields
+        if x.get("total_amount") is not None:
+            total_amount_cents = to_cents(float(x.get("total_amount")))
+            updates.append("total_amount_cents = ?")
+            params.append(total_amount_cents)
+            # Also update remaining amount if it's a new total
+            updates.append("remaining_amount_cents = ?")
+            params.append(total_amount_cents)
+        
+        if x.get("installment_amount") is not None:
+            updates.append("installment_amount_cents = ?")
+            params.append(to_cents(float(x.get("installment_amount"))))
+        
+        if x.get("frequency"):
+            updates.append("frequency = ?")
+            params.append(x.get("frequency"))
+        
+        if x.get("due_date"):
+            updates.append("due_date = ?")
+            params.append(x.get("due_date"))
+            updates.append("next_due_date = ?")
+            params.append(x.get("due_date"))
+        
+        if x.get("priority_score") is not None:
+            priority_score = max(1, min(100, int(x.get("priority_score"))))
+            updates.append("priority_score = ?")
+            params.append(priority_score)
+        
+        if x.get("interest_rate") is not None:
+            updates.append("interest_rate = ?")
+            params.append(float(x.get("interest_rate")))
+        
+        if x.get("description") is not None:
+            updates.append("description = ?")
+            params.append(x.get("description"))
+        
+        if not updates:
+            raise ValueError("No fields to update for liability")
+        
+        updates.append("updated_at = ?")
+        params.append(created_at)
+        
+        # Add WHERE clause parameters
+        params.extend([user_id, f"%{liability_type}%"])
+        
+        sql = f"""
+        UPDATE liabilities 
+        SET {', '.join(updates)}
+        WHERE user_id = ? AND LOWER(liability_type) LIKE LOWER(?)
+        """
+        return sql.strip(), params, "liabilities"
+
+    if llm.get("intent") == "pay_liability":
+        # Process liability payment
+        req = ["liability_type", "payment_type"]
+        miss = missing(req)
+        if miss:
+            raise ValueError(f"missing fields for payment: {miss}")
+        
+        liability_type = x.get("liability_type")
+        payment_type = x.get("payment_type")
+        payment_amount = x.get("payment_amount")
+        payment_account = x.get("account") or "Cash"  # Default to cash if no account specified
+        
+        # First, find the liability to get current details
+        # This will be handled in the payment processing logic
+        # Return a special marker to indicate this needs custom processing
+        return "PAYMENT_PROCESSING", {
+            "liability_type": liability_type,
+            "payment_type": payment_type,
+            "payment_amount": payment_amount,
+            "payment_account": payment_account,
+            "user_id": user_id,
+            "created_at": created_at,
+            "source_text": source_text
+        }, "payment"
+
     raise ValueError("No SQL for this intent")
+
+def add_to_existing_cash_asset(user_id: str, amount_cents: int, cursor):
+    """Add money to existing cash asset or create new one if it doesn't exist"""
+    # Look for existing cash asset
+    cursor.execute("""
+        SELECT id, asset_value_cents 
+        FROM assets 
+        WHERE user_id = ? AND (
+            LOWER(asset_type) LIKE '%cash%' OR 
+            LOWER(account) LIKE '%cash%'
+        )
+        ORDER BY asset_value_cents DESC
+        LIMIT 1
+    """, (user_id,))
+    
+    existing_cash = cursor.fetchone()
+    
+    if existing_cash:
+        # Add to existing cash asset
+        new_balance = existing_cash["asset_value_cents"] + amount_cents
+        cursor.execute("""
+            UPDATE assets 
+            SET asset_value_cents = ?, updated_at = ?
+            WHERE id = ?
+        """, (new_balance, now_iso(), existing_cash["id"]))
+        return existing_cash["id"], new_balance, True
+    else:
+        # Create new cash asset
+        cursor.execute("""
+            INSERT INTO assets (user_id, asset_type, asset_value_cents, asset_description,
+                               account, is_liquid, date_received, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, "Cash", amount_cents, "Cash on hand", "Cash", True, 
+              now_iso().split('T')[0], now_iso(), now_iso()))
+        return cursor.lastrowid, amount_cents, False
+
+def process_liability_payment(user_id: str, payment_data: dict, cursor):
+    """Process liability payment with balance checking and updates"""
+    liability_type = payment_data["liability_type"]
+    payment_type = payment_data["payment_type"]
+    payment_amount = payment_data.get("payment_amount")
+    payment_account = payment_data["payment_account"]
+    created_at = payment_data["created_at"]
+    
+    # Find matching liability
+    cursor.execute("""
+        SELECT id, liability_type, remaining_amount_cents, installment_amount_cents,
+               installments_total, installments_paid, is_completed
+        FROM liabilities 
+        WHERE user_id = ? AND LOWER(liability_type) LIKE LOWER(?) AND is_completed = 0
+        ORDER BY priority_score DESC
+        LIMIT 1
+    """, (user_id, f"%{liability_type}%"))
+    
+    liability = cursor.fetchone()
+    if not liability:
+        raise ValueError(f"No active liability found matching '{liability_type}'")
+    
+    # Determine payment amount based on payment type
+    remaining_amount_cents = liability["remaining_amount_cents"]
+    installment_amount_cents = liability["installment_amount_cents"]
+    
+    if payment_type == "full":
+        actual_payment_cents = remaining_amount_cents
+    elif payment_type == "installment":
+        actual_payment_cents = min(installment_amount_cents, remaining_amount_cents)
+    elif payment_type == "partial" and payment_amount:
+        actual_payment_cents = to_cents(float(payment_amount))
+        if actual_payment_cents > remaining_amount_cents:
+            actual_payment_cents = remaining_amount_cents
+    else:
+        raise ValueError("Invalid payment type or missing payment amount for partial payment")
+    
+    # Check asset balance
+    balance_ok, result = check_asset_balance(user_id, payment_account, actual_payment_cents, cursor)
+    if not balance_ok:
+        raise ValueError(result)  # Error message from balance check
+    
+    asset = result  # Asset object returned from check_asset_balance
+    
+    # Calculate new liability state
+    new_remaining_cents = remaining_amount_cents - actual_payment_cents
+    is_completed = new_remaining_cents <= 0
+    
+    # Only increment installments_paid if this is a full installment payment
+    # or if the payment amount equals or exceeds the installment amount
+    new_installments_paid = liability["installments_paid"]
+    if actual_payment_cents >= installment_amount_cents or payment_type == "installment":
+        new_installments_paid += 1
+    
+    # Update liability
+    cursor.execute("""
+        UPDATE liabilities 
+        SET remaining_amount_cents = ?, 
+            installments_paid = ?,
+            is_completed = ?,
+            updated_at = ?
+        WHERE id = ?
+    """, (max(0, new_remaining_cents), new_installments_paid, is_completed, created_at, liability["id"]))
+    
+    # Deduct from asset
+    deduct_from_asset(asset["id"], actual_payment_cents, cursor)
+    
+    # Return payment details for response
+    return {
+        "liability_id": liability["id"],
+        "liability_type": liability["liability_type"],
+        "payment_amount": actual_payment_cents / 100,
+        "remaining_amount": max(0, new_remaining_cents) / 100,
+        "asset_name": asset["asset_type"] or asset["account"],
+        "asset_new_balance": (asset["asset_value_cents"] - actual_payment_cents) / 100,
+        "is_completed": is_completed,
+        "payment_type": payment_type
+    }
+
+# ------------------- Asset Balance Checking -------------------
+def find_matching_asset(user_id: str, account_name: str, cursor):
+    """Find asset that matches the account/payment method"""
+    # Normalize account name for matching
+    account_lower = account_name.lower().strip()
+    
+    # Get all user's liquid assets
+    cursor.execute("""
+        SELECT id, asset_type, asset_value_cents, account 
+        FROM assets 
+        WHERE user_id = ? AND is_liquid = 1
+        ORDER BY asset_value_cents DESC
+    """, (user_id,))
+    
+    assets = cursor.fetchall()
+    
+    # Try exact matches first
+    for asset in assets:
+        if asset["account"] and asset["account"].lower().strip() == account_lower:
+            return asset
+        if asset["asset_type"] and asset["asset_type"].lower().strip() == account_lower:
+            return asset
+    
+    # Try partial matches
+    for asset in assets:
+        if (asset["account"] and account_lower in asset["account"].lower()) or \
+           (asset["asset_type"] and account_lower in asset["asset_type"].lower()):
+            return asset
+        # Special cases for common payment methods
+        if account_lower in ["cash", "cash account"] and asset["asset_type"] and "cash" in asset["asset_type"].lower():
+            return asset
+        if account_lower in ["checking", "checking account"] and asset["asset_type"] and "checking" in asset["asset_type"].lower():
+            return asset
+        if account_lower in ["savings", "savings account"] and asset["asset_type"] and "savings" in asset["asset_type"].lower():
+            return asset
+        if account_lower in ["credit card", "credit"] and asset["asset_type"] and "credit" in asset["asset_type"].lower():
+            return asset
+    
+    return None
+
+def check_asset_balance(user_id: str, account_name: str, expense_amount_cents: int, cursor):
+    """Check if asset has sufficient balance for expense"""
+    asset = find_matching_asset(user_id, account_name, cursor)
+    
+    if not asset:
+        return False, f"No asset found matching payment method '{account_name}'. Please add this asset first or use an existing payment method."
+    
+    if asset["asset_value_cents"] < expense_amount_cents:
+        return False, f"Insufficient funds in {asset['asset_type'] or asset['account']}. Available: ${asset['asset_value_cents']/100:.2f}, Required: ${expense_amount_cents/100:.2f}"
+    
+    return True, asset
+
+def deduct_from_asset(asset_id: str, expense_amount_cents: int, cursor):
+    """Deduct expense amount from asset balance"""
+    cursor.execute("""
+        UPDATE assets 
+        SET asset_value_cents = asset_value_cents - ?, 
+            updated_at = ?
+        WHERE id = ?
+    """, (expense_amount_cents, now_iso(), asset_id))
 
 # ------------------- API endpoints -------------------
 @app.post("/api/sessions")
@@ -576,37 +1230,302 @@ def chat():
                 (session_id, "user", message, now_iso()))
     conn.commit()
 
-    # call LLM router
-    llm_json = llm_route_extract(message, history)
+    # Get current user context for LLM
+    user_context = get_user_context_for_llm(user_id, cur)
+    
+    # Get user's Cerebras API key
+    cur.execute("SELECT cerebras_api_key FROM users WHERE id = ?", (user_id,))
+    user_row = cur.fetchone()
+    user_api_key = user_row["cerebras_api_key"] if user_row else None
+
+    # call LLM router with real-time context and user's API key
+    llm_json = llm_route_extract(message, history, user_context, user_api_key)
 
     status = "answered"
     reply = llm_json.get("answer_draft") or "Okay."
     meta = {"action": llm_json.get("action"), "intent": llm_json.get("intent")}
 
     # enforce topic and actions
-    if llm_json.get("action") == "reject" or llm_json.get("topic") != "finance":
+    if llm_json.get("intent") in ["api_key_required", "invalid_api_key"]:
+        # Special handling for API key related responses
+        status = "api_key_required"
+        reply = llm_json.get("answer_draft") or "Please configure your API key in profile settings."
+        
+    elif llm_json.get("action") == "reject" and llm_json.get("topic") != "finance":
         status = "rejected"
-        reply = "I can only help with finance-related requests (e.g., 'Log $12 lunch at Chipotle today')."
+        reply = llm_json.get("answer_draft") or "I can only help with finance-related requests (e.g., 'Log $12 lunch at Chipotle today')."
 
     elif llm_json.get("action") == "clarify":
         status = "clarify"
         missing = llm_json.get("missing") or []
         need = ", ".join(missing) if missing else "more details"
-        reply = f"To record this, I still need: {need}. Please provide them."
+        
+        # Special message for missing payment method
+        if "account" in missing:
+            reply = f"To record this expense, I need to know how you paid for it. Please specify the payment method (e.g., 'with cash', 'using my credit card', 'from my checking account', etc.)."
+        # Special guidance for liability classification
+        elif llm_json.get("intent") == "add_liability" and ("installment_amount" in missing or "frequency" in missing):
+            reply = f"Is this a one-time bill (like electricity/water bill) or a recurring EMI/loan? If it's a one-time bill, I can process it directly. If it's an EMI/loan, please provide the installment amount and frequency (monthly/weekly/quarterly)."
+        else:
+            reply = f"To record this, I still need: {need}. Please provide them."
+
+    elif llm_json.get("action") == "answer":
+        status = "answered"
+        
+        # Handle liability queries with real-time data
+        if llm_json.get("intent") == "query_liabilities":
+            if user_context:
+                # Parse and format liability information
+                active_liabilities = []
+                completed_liabilities = []
+                total_remaining = 0
+                
+                cur.execute("""
+                    SELECT liability_type, remaining_amount_cents, installment_amount_cents, 
+                           installments_paid, installments_total, is_completed, priority_score
+                    FROM liabilities 
+                    WHERE user_id = ? 
+                    ORDER BY priority_score DESC, remaining_amount_cents DESC
+                """, (user_id,))
+                
+                liabilities = cur.fetchall()
+                
+                for liability in liabilities:
+                    remaining = liability["remaining_amount_cents"] / 100
+                    installment = liability["installment_amount_cents"] / 100
+                    
+                    if liability["is_completed"]:
+                        completed_liabilities.append(liability["liability_type"])
+                    else:
+                        active_liabilities.append(f"{liability['liability_type']}: ${remaining:.2f} remaining (${installment:.2f} installments)")
+                        total_remaining += remaining
+                
+                if active_liabilities:
+                    reply = f"📊 Your current liabilities:\n\n"
+                    for i, liability in enumerate(active_liabilities, 1):
+                        reply += f"{i}. {liability}\n"
+                    reply += f"\n💰 Total remaining debt: ${total_remaining:.2f}"
+                    
+                    if completed_liabilities:
+                        reply += f"\n\n✅ Completed: {', '.join(completed_liabilities)}"
+                else:
+                    reply = "🎉 Great news! You have no active liabilities. All your debts have been paid off!"
+                    if completed_liabilities:
+                        reply += f"\n\n✅ Previously completed: {', '.join(completed_liabilities)}"
+            else:
+                reply = "I don't see any liability data in your account. You can add liabilities by saying something like 'I have a $5000 car loan with $200 monthly payments'."
+        else:
+            # Use the LLM's answer draft for other finance questions
+            reply = llm_json.get("answer_draft") or "I can help you with finance-related questions."
 
     elif llm_json.get("action") == "save":
         try:
-            sql, params, table = build_sql_and_params(user_id, message, llm_json)
-            cur.execute(sql, params)
-            rid = cur.lastrowid
-            conn.commit()
-            status = "saved"
-            if table == "expenses":
-                reply = "Saved your expense."
+            sql_result = build_sql_and_params(user_id, message, llm_json)
+            
+            # Check if this is a payment processing request
+            if sql_result[0] == "PAYMENT_PROCESSING":
+                payment_data = sql_result[1]
+                
+                # Process the payment
+                payment_result = process_liability_payment(user_id, payment_data, cur)
+                conn.commit()
+                
+                status = "saved"
+                payment_amount = payment_result["payment_amount"]
+                liability_type = payment_result["liability_type"]
+                remaining = payment_result["remaining_amount"]
+                asset_name = payment_result["asset_name"]
+                new_balance = payment_result["asset_new_balance"]
+                is_completed = payment_result["is_completed"]
+                
+                if is_completed:
+                    reply = f"✅ Paid off {liability_type} completely! ${payment_amount:.2f} deducted from {asset_name}. New balance: ${new_balance:.2f}"
+                else:
+                    reply = f"✅ Made ${payment_amount:.2f} payment on {liability_type}. Remaining: ${remaining:.2f}. Deducted from {asset_name}. New balance: ${new_balance:.2f}"
+                
+                meta["payment_result"] = payment_result
+                meta["table"] = "payment"
+            
             else:
-                reply = "Saved your trade."
-            meta["record_id"] = rid
-            meta["table"] = table
+                sql, params, table = sql_result
+            
+            # Special handling for expenses - check asset balance before saving
+            if table == "expenses" and llm_json.get("intent") == "record_expense":
+                extracted = llm_json.get("extracted", {})
+                account_name = extracted.get("account")
+                expense_amount = float(extracted.get("amount", 0))
+                expense_amount_cents = to_cents(expense_amount)
+                
+                # Check if user has sufficient balance in the specified asset
+                balance_ok, result = check_asset_balance(user_id, account_name, expense_amount_cents, cur)
+                
+                if not balance_ok:
+                    # Insufficient funds or asset not found
+                    status = "rejected"
+                    reply = result  # Error message
+                else:
+                    # Sufficient funds - record expense and deduct from asset
+                    cur.execute(sql, params)
+                    rid = cur.lastrowid
+                    conn.commit()
+                    
+                    # Deduct from asset
+                    asset = result  # Asset object returned from check_asset_balance
+                    deduct_from_asset(asset["id"], expense_amount_cents, cur)
+                    conn.commit()
+                    
+                    status = "saved"
+                    asset_name = asset["asset_type"] or asset["account"] or "your account"
+                    new_balance = (asset["asset_value_cents"] - expense_amount_cents) / 100
+                    reply = f"✅ Recorded ${expense_amount:.2f} expense and deducted from {asset_name}. New balance: ${new_balance:.2f}"
+                    meta["record_id"] = rid
+                    meta["table"] = table
+                    meta["asset_updated"] = asset["id"]
+                    meta["new_balance"] = new_balance
+            
+            # Special handling for cash asset additions
+            elif table == "assets" and llm_json.get("intent") == "add_asset":
+                extracted = llm_json.get("extracted", {})
+                asset_type = extracted.get("asset_type", "").lower()
+                amount = float(extracted.get("asset_value", 0))
+                amount_cents = to_cents(amount)
+                
+                # Check if this is a cash addition
+                if "cash" in asset_type or "cash" in extracted.get("account", "").lower():
+                    # Add to existing cash or create new cash asset
+                    asset_id, new_balance, was_existing = add_to_existing_cash_asset(user_id, amount_cents, cur)
+                    conn.commit()
+                    
+                    status = "saved"
+                    balance_display = new_balance / 100
+                    if was_existing:
+                        reply = f"✅ Added ${amount:.2f} to your cash. New cash balance: ${balance_display:.2f}"
+                    else:
+                        reply = f"✅ Created new cash asset with ${amount:.2f}"
+                    meta["record_id"] = asset_id
+                    meta["table"] = table
+                    meta["asset_updated"] = asset_id
+                    meta["new_balance"] = balance_display
+                else:
+                    # Regular asset addition
+                    cur.execute(sql, params)
+                    rid = cur.lastrowid
+                    conn.commit()
+                    status = "saved"
+                    reply = f"✅ Added ${amount:.2f} {asset_type} asset to your portfolio."
+                    meta["record_id"] = rid
+                    meta["table"] = table
+            
+            else:
+                # For other records (trades, liabilities, etc.), use original logic
+                if llm_json.get("intent") == "update_liability_priority":
+                    # Special handling for priority updates
+                    cur.execute(sql, params)
+                    affected_rows = cur.rowcount
+                    conn.commit()
+                    
+                    if affected_rows > 0:
+                        status = "saved"
+                        extracted = llm_json.get("extracted", {})
+                        liability_type = extracted.get("liability_type", "liability")
+                        priority_score = extracted.get("priority_score", 50)
+                        
+                        # Convert priority score to descriptive text
+                        if priority_score >= 80:
+                            priority_text = "high priority"
+                        elif priority_score >= 50:
+                            priority_text = "medium priority"
+                        else:
+                            priority_text = "low priority"
+                            
+                        reply = f"✅ Updated {liability_type} to {priority_text} (score: {priority_score}/100)."
+                    else:
+                        status = "clarify"
+                        reply = f"I couldn't find a liability matching '{extracted.get('liability_type', '')}'. Please be more specific about which liability you want to update."
+                    
+                    meta["affected_rows"] = affected_rows
+                    meta["table"] = table
+                elif llm_json.get("intent") == "update_asset":
+                    # Special handling for asset updates
+                    cur.execute(sql, params)
+                    affected_rows = cur.rowcount
+                    conn.commit()
+                    
+                    if affected_rows > 0:
+                        status = "saved"
+                        extracted = llm_json.get("extracted", {})
+                        asset_type = extracted.get("asset_type", "asset")
+                        
+                        # Build update summary
+                        updates = []
+                        if extracted.get("asset_value"):
+                            updates.append(f"value to ${float(extracted.get('asset_value')):.2f}")
+                        if extracted.get("asset_description"):
+                            updates.append("description")
+                        if extracted.get("date_received"):
+                            updates.append("date received")
+                        
+                        update_text = ", ".join(updates) if updates else "details"
+                        reply = f"✅ Updated {asset_type} {update_text}."
+                    else:
+                        status = "clarify"
+                        reply = f"I couldn't find an asset matching '{extracted.get('asset_type', '')}'. Please be more specific about which asset you want to update."
+                    
+                    meta["affected_rows"] = affected_rows
+                    meta["table"] = table
+                elif llm_json.get("intent") == "update_liability":
+                    # Special handling for liability updates
+                    cur.execute(sql, params)
+                    affected_rows = cur.rowcount
+                    conn.commit()
+                    
+                    if affected_rows > 0:
+                        status = "saved"
+                        extracted = llm_json.get("extracted", {})
+                        liability_type = extracted.get("liability_type", "liability")
+                        
+                        # Build update summary
+                        updates = []
+                        if extracted.get("total_amount"):
+                            updates.append(f"amount to ${float(extracted.get('total_amount')):.2f}")
+                        if extracted.get("installment_amount"):
+                            updates.append(f"installment to ${float(extracted.get('installment_amount')):.2f}")
+                        if extracted.get("frequency"):
+                            updates.append(f"frequency to {extracted.get('frequency')}")
+                        if extracted.get("due_date"):
+                            updates.append(f"due date to {extracted.get('due_date')}")
+                        if extracted.get("priority_score"):
+                            priority_score = int(extracted.get("priority_score"))
+                            priority_text = "high" if priority_score >= 80 else "medium" if priority_score >= 50 else "low"
+                            updates.append(f"priority to {priority_text} ({priority_score}/100)")
+                        if extracted.get("interest_rate"):
+                            updates.append(f"interest rate to {float(extracted.get('interest_rate')):.2f}%")
+                        if extracted.get("description"):
+                            updates.append("description")
+                        
+                        update_text = ", ".join(updates) if updates else "details"
+                        reply = f"✅ Updated {liability_type} {update_text}."
+                    else:
+                        status = "clarify"
+                        reply = f"I couldn't find a liability matching '{extracted.get('liability_type', '')}'. Please be more specific about which liability you want to update."
+                    
+                    meta["affected_rows"] = affected_rows
+                    meta["table"] = table
+                else:
+                    # Regular logic for other record types
+                    cur.execute(sql, params)
+                    rid = cur.lastrowid
+                    conn.commit()
+                    status = "saved"
+                    if table == "expenses":
+                        reply = "Saved your expense."
+                    elif table == "assets":
+                        reply = "Added your asset."
+                    else:
+                        reply = "Saved your transaction."
+                    meta["record_id"] = rid
+                    meta["table"] = table
+                
         except Exception as e:
             status = "clarify"
             reply = f"I’m missing details to save this: {e}"
@@ -802,6 +1721,110 @@ def create_asset():
     finally:
         conn.close()
 
+@app.put("/api/assets/<int:asset_id>")
+@token_required
+def update_asset(asset_id):
+    """Update an existing asset"""
+    user_id = request.current_user_id
+    data = request.get_json() or {}
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # First check if asset exists and belongs to user
+        cur.execute("SELECT id FROM assets WHERE id = ? AND user_id = ?", (asset_id, user_id))
+        if not cur.fetchone():
+            return jsonify({"error": "Asset not found"}), 404
+        
+        # Build dynamic update query
+        updates = []
+        params = []
+        
+        if 'asset_type' in data:
+            updates.append("asset_type = ?")
+            params.append(data['asset_type'])
+        
+        if 'asset_value' in data:
+            updates.append("asset_value_cents = ?")
+            params.append(to_cents(float(data['asset_value'])))
+        
+        if 'asset_description' in data:
+            updates.append("asset_description = ?")
+            params.append(data['asset_description'])
+        
+        if 'account' in data:
+            updates.append("account = ?")
+            params.append(data['account'])
+        
+        if 'is_liquid' in data:
+            updates.append("is_liquid = ?")
+            params.append(data['is_liquid'])
+        
+        if 'date_received' in data:
+            updates.append("date_received = ?")
+            params.append(data['date_received'])
+        
+        if not updates:
+            return jsonify({"error": "No fields to update"}), 400
+        
+        updates.append("updated_at = ?")
+        params.append(now_iso())
+        params.append(asset_id)
+        params.append(user_id)
+        
+        sql = f"UPDATE assets SET {', '.join(updates)} WHERE id = ? AND user_id = ?"
+        cur.execute(sql, params)
+        conn.commit()
+        
+        return jsonify({"message": "Asset updated successfully"})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.get("/api/assets/types")
+@token_required
+def get_asset_types():
+    """Get distinct asset types used by the user"""
+    user_id = request.current_user_id
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+        SELECT DISTINCT asset_type 
+        FROM assets 
+        WHERE user_id = ? AND asset_type IS NOT NULL AND asset_type != ''
+        ORDER BY asset_type
+        """, (user_id,))
+        
+        rows = cur.fetchall()
+        asset_types = [row["asset_type"] for row in rows]
+        
+        # Add some common default types if user has no assets yet
+        if not asset_types:
+            asset_types = [
+                "Cash",
+                "Savings Account", 
+                "Checking Account",
+                "Investment Account",
+                "Real Estate",
+                "Stock Portfolio",
+                "Retirement Fund",
+                "Vehicle",
+                "Other"
+            ]
+        
+        return jsonify({"asset_types": asset_types})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
 @app.post("/api/tentative-assets")
 @token_required
 def create_tentative_asset():
@@ -865,16 +1888,499 @@ def get_liabilities():
     finally:
         conn.close()
 
+@app.post("/api/liabilities")
+@token_required
+def create_liability():
+    """Create a new liability"""
+    user_id = request.current_user_id
+    data = request.get_json() or {}
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Extract and validate required fields
+        liability_type = data.get('liability_type')
+        liability_amount = float(data.get('liability_amount', 0))
+        installments_total = int(data.get('installments_total', 1))
+        frequency = data.get('frequency', 'monthly')
+        due_date = data.get('due_date')
+        priority_score = int(data.get('priority_score', data.get('importance_score', 50)))
+        description = data.get('description', '')
+        interest_rate = float(data.get('interest_rate', 0.0))
+        
+        # Validate required fields
+        if not all([liability_type, liability_amount > 0, due_date]):
+            return jsonify({"error": "Missing required fields: liability_type, liability_amount, due_date"}), 400
+        
+        # Calculate installment amount
+        installment_amount = liability_amount / installments_total
+        
+        # Calculate next due date (same as first due date initially)
+        next_due_date = due_date
+        
+        # Insert liability
+        cur.execute("""
+        INSERT INTO liabilities (user_id, liability_type, total_amount_cents, remaining_amount_cents,
+                               installment_amount_cents, installments_total, installments_paid,
+                               frequency, due_date, next_due_date, interest_rate, priority_score,
+                               is_completed, description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id,
+            liability_type,
+            to_cents(liability_amount),
+            to_cents(liability_amount),  # Initially remaining = total
+            to_cents(installment_amount),
+            installments_total,
+            0,  # No installments paid initially
+            frequency,
+            due_date,
+            next_due_date,
+            interest_rate,
+            priority_score,
+            False,  # Not completed initially
+            description,
+            now_iso(),
+            now_iso()
+        ))
+        
+        liability_id = cur.lastrowid
+        conn.commit()
+        
+        return jsonify({
+            "message": "Liability created successfully",
+            "liability_id": liability_id
+        })
+        
+    except ValueError as e:
+        return jsonify({"error": f"Invalid data: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.put("/api/liabilities/<int:liability_id>")
+@token_required
+def update_liability(liability_id):
+    """Update an existing liability"""
+    user_id = request.current_user_id
+    data = request.get_json() or {}
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # First check if liability exists and belongs to user
+        cur.execute("SELECT id FROM liabilities WHERE id = ? AND user_id = ?", (liability_id, user_id))
+        if not cur.fetchone():
+            return jsonify({"error": "Liability not found"}), 404
+        
+        # Build dynamic update query
+        updates = []
+        params = []
+        
+        if 'liability_type' in data:
+            updates.append("liability_type = ?")
+            params.append(data['liability_type'])
+        
+        if 'total_amount' in data:
+            total_amount_cents = to_cents(float(data['total_amount']))
+            updates.append("total_amount_cents = ?")
+            params.append(total_amount_cents)
+            # Also update remaining amount
+            updates.append("remaining_amount_cents = ?")
+            params.append(total_amount_cents)
+        
+        if 'installment_amount' in data:
+            updates.append("installment_amount_cents = ?")
+            params.append(to_cents(float(data['installment_amount'])))
+        
+        if 'installments_total' in data:
+            updates.append("installments_total = ?")
+            params.append(int(data['installments_total']))
+        
+        if 'frequency' in data:
+            updates.append("frequency = ?")
+            params.append(data['frequency'])
+        
+        if 'due_date' in data:
+            updates.append("due_date = ?")
+            params.append(data['due_date'])
+            updates.append("next_due_date = ?")
+            params.append(data['due_date'])
+        
+        if 'priority_score' in data:
+            priority_score = max(1, min(100, int(data['priority_score'])))
+            updates.append("priority_score = ?")
+            params.append(priority_score)
+        
+        if 'interest_rate' in data:
+            updates.append("interest_rate = ?")
+            params.append(float(data['interest_rate']))
+        
+        if 'description' in data:
+            updates.append("description = ?")
+            params.append(data['description'])
+        
+        if not updates:
+            return jsonify({"error": "No fields to update"}), 400
+        
+        updates.append("updated_at = ?")
+        params.append(now_iso())
+        params.append(liability_id)
+        params.append(user_id)
+        
+        sql = f"UPDATE liabilities SET {', '.join(updates)} WHERE id = ? AND user_id = ?"
+        cur.execute(sql, params)
+        conn.commit()
+        
+        return jsonify({"message": "Liability updated successfully"})
+        
+    except ValueError as e:
+        return jsonify({"error": f"Invalid data: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.post("/api/liabilities/<int:liability_id>/pay")
+@token_required
+def make_liability_payment(liability_id):
+    """Make a payment on a specific liability"""
+    user_id = request.current_user_id
+    data = request.get_json() or {}
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # First check if liability exists and belongs to user
+        cur.execute("""
+            SELECT id, liability_type, remaining_amount_cents, installment_amount_cents,
+                   installments_total, installments_paid, is_completed
+            FROM liabilities 
+            WHERE id = ? AND user_id = ?
+        """, (liability_id, user_id))
+        
+        liability = cur.fetchone()
+        if not liability:
+            return jsonify({"error": "Liability not found"}), 404
+        
+        if liability["is_completed"]:
+            return jsonify({"error": "Liability is already completed"}), 400
+        
+        # Get payment details
+        payment_type = data.get('payment_type', 'installment')  # installment, full, partial
+        payment_amount = data.get('payment_amount')  # For partial payments
+        payment_account = data.get('payment_account', 'Cash')  # Asset to pay from
+        
+        # Validate payment type and amount
+        remaining_amount_cents = liability["remaining_amount_cents"]
+        installment_amount_cents = liability["installment_amount_cents"]
+        
+        if payment_type == "full":
+            actual_payment_cents = remaining_amount_cents
+        elif payment_type == "installment":
+            actual_payment_cents = min(installment_amount_cents, remaining_amount_cents)
+        elif payment_type == "partial":
+            if not payment_amount:
+                return jsonify({"error": "Payment amount required for partial payment"}), 400
+            actual_payment_cents = to_cents(float(payment_amount))
+            if actual_payment_cents > remaining_amount_cents:
+                actual_payment_cents = remaining_amount_cents
+        else:
+            return jsonify({"error": "Invalid payment type"}), 400
+        
+        # Check asset balance
+        balance_ok, result = check_asset_balance(user_id, payment_account, actual_payment_cents, cur)
+        if not balance_ok:
+            return jsonify({"error": result}), 400
+        
+        asset = result  # Asset object returned from check_asset_balance
+        
+        # Calculate new liability state
+        new_remaining_cents = remaining_amount_cents - actual_payment_cents
+        is_completed = new_remaining_cents <= 0
+        
+        # Only increment installments_paid if this is a full installment payment
+        # or if the payment amount equals or exceeds the installment amount
+        new_installments_paid = liability["installments_paid"]
+        if actual_payment_cents >= installment_amount_cents or payment_type == "installment":
+            new_installments_paid += 1
+        
+        # Update liability
+        cur.execute("""
+            UPDATE liabilities 
+            SET remaining_amount_cents = ?, 
+                installments_paid = ?,
+                is_completed = ?,
+                updated_at = ?
+            WHERE id = ?
+        """, (max(0, new_remaining_cents), new_installments_paid, is_completed, now_iso(), liability_id))
+        
+        # Deduct from asset
+        deduct_from_asset(asset["id"], actual_payment_cents, cur)
+        conn.commit()
+        
+        return jsonify({
+            "message": "Payment processed successfully",
+            "payment_details": {
+                "liability_id": liability_id,
+                "liability_type": liability["liability_type"],
+                "payment_amount": actual_payment_cents / 100,
+                "remaining_amount": max(0, new_remaining_cents) / 100,
+                "asset_name": asset["asset_type"] or asset["account"],
+                "asset_new_balance": (asset["asset_value_cents"] - actual_payment_cents) / 100,
+                "is_completed": is_completed,
+                "payment_type": payment_type
+            }
+        })
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.get("/api/liabilities/types") 
+@token_required
+def get_liability_types():
+    """Get distinct liability types used by the user"""
+    user_id = request.current_user_id
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+        SELECT DISTINCT liability_type 
+        FROM liabilities 
+        WHERE user_id = ? AND liability_type IS NOT NULL AND liability_type != ''
+        ORDER BY liability_type
+        """, (user_id,))
+        
+        rows = cur.fetchall()
+        liability_types = [row["liability_type"] for row in rows]
+        
+        # Add some common default types if user has no liabilities yet
+        if not liability_types:
+            liability_types = [
+                "Credit Card",
+                "Student Loan", 
+                "Car Loan",
+                "Mortgage",
+                "Personal Loan",
+                "Rent",
+                "Utilities",
+                "Insurance",
+                "Subscription",
+                "Other"
+            ]
+        
+        return jsonify({"liability_types": liability_types})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
 # ------------------- Recommendations API -------------------
 @app.get("/api/recommendations")
 @token_required
 def get_recommendations():
-    """Get financial recommendations"""
+    """Get financial recommendations based on user's liabilities and assets"""
     user_id = request.current_user_id
     
-    # For now, return empty recommendations as this would need 
-    # complex financial analysis logic to generate real recommendations
-    return jsonify({"recommendations": []})
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Get user information
+        cur.execute("SELECT monthly_income_cents, currency_preference FROM users WHERE id = ?", (user_id,))
+        user_row = cur.fetchone()
+        
+        if not user_row:
+            return jsonify({"error": "User not found"}), 404
+        
+        monthly_income = (user_row["monthly_income_cents"] or 0) / 100
+        
+        # Get user's liquid assets total
+        cur.execute("SELECT SUM(asset_value_cents) as total FROM assets WHERE user_id = ? AND is_liquid = 1", (user_id,))
+        assets_result = cur.fetchone()
+        total_liquid_assets = (assets_result["total"] / 100) if assets_result["total"] else 0
+        
+        # Get active liabilities with priority calculation
+        cur.execute("""
+        SELECT id, liability_type, total_amount_cents, remaining_amount_cents,
+               installment_amount_cents, installments_total, installments_paid,
+               next_due_date, interest_rate, priority_score, description
+        FROM liabilities 
+        WHERE user_id = ? AND is_completed = 0 
+        ORDER BY priority_score DESC, next_due_date ASC
+        """, (user_id,))
+        
+        liabilities = cur.fetchall()
+        
+        # Calculate available budget (70% of income)
+        available_budget = monthly_income * 0.7
+        
+        # Generate recommendations
+        recommendations = []
+        remaining_budget = available_budget
+        
+        for liability in liabilities:
+            installment = liability["installment_amount_cents"] / 100
+            priority_score = liability["priority_score"]
+            remaining_amount = liability["remaining_amount_cents"] / 100
+            
+            # Determine urgency based on priority score and due date
+            urgency = "High" if priority_score >= 80 else "Medium" if priority_score >= 60 else "Low"
+            
+            # Determine recommended action based on budget and priority
+            if remaining_budget >= installment:
+                recommended_action = "Pay this month"
+                remaining_budget -= installment
+            elif priority_score >= 80:
+                recommended_action = "High priority - consider partial payment or reallocation"
+            else:
+                recommended_action = "Defer to next month or consider minimum payment"
+            
+            recommendation = {
+                "liability": {
+                    "id": liability["id"],
+                    "liability_type": liability["liability_type"],
+                    "remaining_amount": remaining_amount,
+                    "installment_amount": installment,
+                    "installments_total": liability["installments_total"],
+                    "installments_paid": liability["installments_paid"],
+                    "next_due_date": liability["next_due_date"],
+                    "description": liability["description"] or f"{liability['liability_type']} payment"
+                },
+                "priority_score": priority_score,
+                "recommended_action": recommended_action,
+                "amount": installment,
+                "urgency": urgency
+            }
+            recommendations.append(recommendation)
+        
+        # Calculate budget utilization
+        total_recommended_payments = sum(r["amount"] for r in recommendations if r["recommended_action"] == "Pay this month")
+        
+        return jsonify({
+            "total_income": monthly_income,
+            "available_budget": available_budget,
+            "remaining_budget": max(0, remaining_budget),
+            "total_liquid_assets": total_liquid_assets,
+            "recommendations": recommendations,
+            "budget_utilization": (total_recommended_payments / available_budget * 100) if available_budget > 0 else 0
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+# ------------------- Profile API -------------------
+@app.get("/api/profile")
+@token_required
+def get_profile():
+    """Get user profile information"""
+    user_id = request.current_user_id
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            SELECT id, name, email, monthly_income_cents, currency_preference, 
+                   cerebras_api_key, created_at, updated_at
+            FROM users WHERE id = ?
+        """, (user_id,))
+        
+        user_row = cur.fetchone()
+        if not user_row:
+            return jsonify({"error": "User not found"}), 404
+        
+        user_profile = {
+            "id": user_row["id"],
+            "name": user_row["name"],
+            "email": user_row["email"],
+            "monthly_income": user_row["monthly_income_cents"] / 100 if user_row["monthly_income_cents"] else 0,
+            "currency_preference": user_row["currency_preference"],
+            "has_api_key": bool(user_row["cerebras_api_key"]),  # Don't return the actual key
+            "api_key_preview": f"csk-...{user_row['cerebras_api_key'][-4:]}" if user_row["cerebras_api_key"] else None,
+            "created_at": user_row["created_at"],
+            "updated_at": user_row["updated_at"]
+        }
+        
+        return jsonify({"profile": user_profile})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.put("/api/profile")
+@token_required
+def update_profile():
+    """Update user profile information"""
+    user_id = request.current_user_id
+    data = request.get_json() or {}
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Check if user exists
+        cur.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "User not found"}), 404
+        
+        # Build dynamic update query
+        updates = []
+        params = []
+        
+        if 'name' in data:
+            updates.append("name = ?")
+            params.append(data['name'])
+        
+        if 'monthly_income' in data:
+            updates.append("monthly_income_cents = ?")
+            params.append(to_cents(float(data['monthly_income'])))
+        
+        if 'currency_preference' in data:
+            updates.append("currency_preference = ?")
+            params.append(data['currency_preference'])
+        
+        if 'cerebras_api_key' in data:
+            api_key = data['cerebras_api_key'].strip()
+            # Validate Cerebras API key format
+            if api_key and not api_key.startswith('csk-'):
+                return jsonify({"error": "Invalid Cerebras API key format. Key should start with 'csk-'"}), 400
+            updates.append("cerebras_api_key = ?")
+            params.append(api_key if api_key else None)
+        
+        if not updates:
+            return jsonify({"error": "No fields to update"}), 400
+        
+        updates.append("updated_at = ?")
+        params.append(now_iso())
+        params.append(user_id)
+        
+        sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+        cur.execute(sql, params)
+        conn.commit()
+        
+        return jsonify({"message": "Profile updated successfully"})
+        
+    except ValueError as e:
+        return jsonify({"error": f"Invalid data: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 # ------------------- Auth API -------------------
 @app.post("/api/auth/register")
@@ -903,12 +2409,13 @@ def register():
         # Create new user
         user_id = str(uuid.uuid4())
         password_hash = generate_password_hash(password)
+        secret_key = generate_secret_key()  # Generate secret key for new user
         
         cur.execute("""
-        INSERT INTO users (id, name, email, password_hash, monthly_income_cents, 
+        INSERT INTO users (id, name, email, password_hash, secret_key, monthly_income_cents, 
                           currency_preference, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, name, email, password_hash, 0, "USD", now_iso(), now_iso()))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, name, email, password_hash, secret_key, 0, "USD", now_iso(), now_iso()))
         
         conn.commit()
         
@@ -918,6 +2425,7 @@ def register():
         return jsonify({
             "message": "Registration successful",
             "access_token": token,
+            "secret_key": secret_key,  # Return secret key to user
             "user": {
                 "id": user_id,
                 "name": name,
@@ -945,7 +2453,7 @@ def login():
     
     try:
         # Find user by email
-        cur.execute("SELECT id, name, email, password_hash FROM users WHERE email = ?", (email,))
+        cur.execute("SELECT id, name, email, password_hash, secret_key FROM users WHERE email = ?", (email,))
         user_row = cur.fetchone()
         
         if not user_row or not check_password_hash(user_row["password_hash"], password):
@@ -962,6 +2470,86 @@ def login():
                 "name": user_row["name"],
                 "email": user_row["email"]
             }
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.post("/api/auth/reset-password")
+def reset_password():
+    """Reset password using secret key"""
+    data = request.get_json() or {}
+    email = data.get("email", "").strip().lower()
+    secret_key = data.get("secret_key", "").strip()
+    new_password = data.get("new_password", "")
+    
+    if not email or not secret_key or not new_password:
+        return jsonify({"error": "Email, secret key, and new password are required"}), 400
+    
+    if len(new_password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Find user by email and secret key
+        cur.execute("SELECT id, name, email FROM users WHERE email = ? AND secret_key = ?", (email, secret_key))
+        user_row = cur.fetchone()
+        
+        if not user_row:
+            return jsonify({"error": "Invalid email or secret key"}), 401
+        
+        # Update password
+        password_hash = generate_password_hash(new_password)
+        cur.execute("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", 
+                   (password_hash, now_iso(), user_row["id"]))
+        conn.commit()
+        
+        return jsonify({
+            "message": "Password reset successful",
+            "user": {
+                "id": user_row["id"],
+                "name": user_row["name"],
+                "email": user_row["email"]
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.post("/api/auth/get-secret-key")
+@token_required
+def get_secret_key():
+    """Get user's secret key with password verification"""
+    data = request.get_json() or {}
+    password = data.get("password", "")
+    user_id = request.current_user_id
+    
+    if not password:
+        return jsonify({"error": "Password is required"}), 400
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Get user's current password hash and secret key
+        cur.execute("SELECT password_hash, secret_key FROM users WHERE id = ?", (user_id,))
+        user_row = cur.fetchone()
+        
+        if not user_row or not check_password_hash(user_row["password_hash"], password):
+            return jsonify({"error": "Invalid password"}), 401
+        
+        if not user_row["secret_key"]:
+            return jsonify({"error": "No secret key found. Please log in again to generate one."}), 404
+        
+        return jsonify({
+            "secret_key": user_row["secret_key"],
+            "message": "Secret key retrieved successfully"
         })
         
     except Exception as e:

@@ -6,6 +6,7 @@ import RecommendationCard from '../components/RecommendationCard';
 import ProfileMenu from '../components/ProfileMenu';
 import Chatbot from '../components/Chatbot';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { useDataRefresh } from '../contexts/DataRefreshContext';
 import { getDashboard } from '../services/api';
 
 const Dashboard = () => {
@@ -13,6 +14,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { getRefreshTrigger } = useDataRefresh();
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -23,6 +25,14 @@ const Dashboard = () => {
     
     fetchDashboardData();
   }, [navigate]);
+
+  // Listen for refresh triggers
+  useEffect(() => {
+    const refreshTrigger = getRefreshTrigger('dashboard');
+    if (refreshTrigger > 0 && dashboardData) { // Only refresh if we have initial data
+      fetchDashboardData();
+    }
+  }, [getRefreshTrigger('dashboard')]);
 
   const fetchDashboardData = async () => {
     try {
@@ -36,12 +46,23 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Dashboard error details:', err);
       console.error('Error response:', err.response);
+      
+      // Handle authentication errors
       if (err.response?.status === 401) {
         // Token is invalid, redirect to login
         localStorage.removeItem('access_token');
         navigate('/login');
         return;
       }
+      
+      // Handle user not found error
+      if (err.response?.status === 404 && err.response?.data?.error === 'User not found') {
+        // User doesn't exist in database, redirect to login to create account
+        localStorage.removeItem('access_token');
+        navigate('/login');
+        return;
+      }
+      
       setError(`Failed to load dashboard data: ${err.response?.data?.error || err.message}`);
     } finally {
       setLoading(false);

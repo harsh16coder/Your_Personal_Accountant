@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { sendChatMessage, createChatSession, getChatMessages } from '../services/api';
 import { getCurrentUserId, isAuthenticated } from '../utils/auth';
+import { useDataRefresh, getDataTypesToRefresh } from '../contexts/DataRefreshContext';
 
 // Global function to clear chat session (can be called from login/logout)
 export const clearStoredChatSession = () => {
@@ -15,6 +17,8 @@ const Chatbot = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const messagesEndRef = useRef(null);
+  const { triggerRefresh } = useDataRefresh();
+  const navigate = useNavigate();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -179,6 +183,16 @@ const Chatbot = () => {
       };
       setMessages(prev => [...prev, botMessage]);
 
+      // Trigger data refresh if operation was successful
+      if (response.status === 'saved' && response.meta) {
+        const table = response.meta.table;
+        if (table) {
+          const dataTypesToRefresh = getDataTypesToRefresh('save', table);
+          console.log('Triggering refresh for:', dataTypesToRefresh);
+          triggerRefresh(dataTypesToRefresh);
+        }
+      }
+
     } catch (error) {
       console.error('Chat error:', error);
       
@@ -208,6 +222,16 @@ const Chatbot = () => {
             meta: retryResponse.meta
           };
           setMessages(prev => [...prev, botMessage]);
+          
+          // Trigger data refresh if retry operation was successful
+          if (retryResponse.status === 'saved' && retryResponse.meta) {
+            const table = retryResponse.meta.table;
+            if (table) {
+              const dataTypesToRefresh = getDataTypesToRefresh('save', table);
+              console.log('Triggering refresh for retry:', dataTypesToRefresh);
+              triggerRefresh(dataTypesToRefresh);
+            }
+          }
           return;
           
         } catch (retryError) {
@@ -215,11 +239,21 @@ const Chatbot = () => {
         }
       }
       
-      const errorMessage = {
-        type: 'bot',
-        content: 'Sorry, I encountered an error connecting to the server. Please make sure the backend is running and try again.',
-        timestamp: new Date()
-      };
+      // Check for specific error types
+      let errorMessage;
+      if (error.response?.data?.error?.includes('API key')) {
+        errorMessage = {
+          type: 'bot',
+          content: 'Please configure your Cerebras API key in your profile settings to use the chatbot. You can get a free API key from Cerebras Console and add it in your profile.',
+          timestamp: new Date()
+        };
+      } else {
+        errorMessage = {
+          type: 'bot',
+          content: 'Sorry, I encountered an error connecting to the server. Please make sure the backend is running and try again.',
+          timestamp: new Date()
+        };
+      }
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
@@ -375,6 +409,25 @@ const Chatbot = () => {
                       : 'bg-white text-gray-800 rounded-bl-md border'
                   }`}>
                     <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                    
+                    {/* Special handling for API key messages */}
+                    {message.type === 'bot' && message.status === 'api_key_required' && (
+                      <div className="mt-3 pt-2 border-t border-gray-200">
+                        <button
+                          onClick={() => {
+                            setIsExpanded(false);
+                            navigate('/profile');
+                          }}
+                          className="w-full bg-blue-600 text-white text-sm py-2 px-3 rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center space-x-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m0 0a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2m0 0V7a2 2 0 012-2m6 2a2 2 0 00-2-2m0 0a2 2 0 00-2-2v6a2 2 0 002 2h6M7 7h6v6H7z" />
+                          </svg>
+                          <span>Configure API Key</span>
+                        </button>
+                      </div>
+                    )}
+                    
                     <p className={`text-xs mt-2 ${
                       message.type === 'user' ? 'text-blue-100' : 'text-gray-500'
                     }`}>

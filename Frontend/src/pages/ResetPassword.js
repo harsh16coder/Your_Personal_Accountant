@@ -1,23 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { login } from '../services/api';
-import { isAuthenticated } from '../utils/auth';
+import { resetPassword } from '../services/api';
 
-const Login = () => {
+const ResetPassword = () => {
   const [formData, setFormData] = useState({
     email: '',
-    password: ''
+    secret_key: '',
+    new_password: '',
+    confirm_password: ''
   });
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (isAuthenticated()) {
-      navigate('/', { replace: true });
-    }
-  }, [navigate]);
 
   const handleChange = (e) => {
     setFormData({
@@ -26,17 +21,47 @@ const Login = () => {
     });
   };
 
+  const validatePassword = (password) => {
+    if (password.length < 6) {
+      return 'Password must be at least 6 characters long';
+    }
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccess('');
+
+    // Validate passwords match
+    if (formData.new_password !== formData.confirm_password) {
+      setError('Passwords do not match');
+      setLoading(false);
+      return;
+    }
+
+    // Validate password strength
+    const passwordError = validatePassword(formData.new_password);
+    if (passwordError) {
+      setError(passwordError);
+      setLoading(false);
+      return;
+    }
 
     try {
-      const response = await login(formData);
-      localStorage.setItem('access_token', response.access_token);
-      navigate('/');
+      await resetPassword({
+        email: formData.email,
+        secret_key: formData.secret_key,
+        new_password: formData.new_password
+      });
+      
+      setSuccess('Password reset successful! You can now log in with your new password.');
+      setTimeout(() => {
+        navigate('/login');
+      }, 3000);
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed. Please check your credentials.');
+      setError(err.response?.data?.error || 'Password reset failed. Please check your details.');
     } finally {
       setLoading(false);
     }
@@ -49,18 +74,18 @@ const Login = () => {
         <div className="text-center">
           <div className="mx-auto h-20 w-20 bg-gradient-to-br from-primary-blue to-dark-blue rounded-full flex items-center justify-center mb-4">
             <svg className="h-10 w-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m0 0a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2m0 0V7a2 2 0 012-2m6 2a2 2 0 00-2-2m0 0a2 2 0 00-2-2v6a2 2 0 002 2h6M7 7h6v6H7z" />
             </svg>
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900">
-            Welcome Back
+            Reset Password
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Sign in to your Personal Accountant
+            Enter your email and secret key to reset your password
           </p>
         </div>
 
-        {/* Sign Up Notice */}
+        {/* Instructions */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex">
             <div className="flex-shrink-0">
@@ -70,22 +95,16 @@ const Login = () => {
             </div>
             <div className="ml-3">
               <h3 className="text-sm font-medium text-blue-800">
-                New to Personal Accountant?
+                Need your secret key?
               </h3>
               <div className="mt-2 text-sm text-blue-700">
-                <p>Create your account to start managing your finances with AI-powered insights.</p>
-                <Link
-                  to="/register"
-                  className="mt-2 text-blue-800 hover:text-blue-900 font-medium underline"
-                >
-                  Create your free account
-                </Link>
+                <p>Your secret key was provided during login. If you don't have it, you can view it from your profile menu after logging in.</p>
               </div>
             </div>
           </div>
         </div>
         
-        {/* Login Form */}
+        {/* Reset Form */}
         <div className="bg-white rounded-lg shadow-lg p-8">
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="space-y-4">
@@ -105,19 +124,52 @@ const Login = () => {
                   onChange={handleChange}
                 />
               </div>
+              
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                  Password
+                <label htmlFor="secret_key" className="block text-sm font-medium text-gray-700">
+                  Secret Key
                 </label>
                 <input
-                  id="password"
-                  name="password"
+                  id="secret_key"
+                  name="secret_key"
+                  type="text"
+                  required
+                  className="mt-1 appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue focus:border-primary-blue focus:z-10 sm:text-sm transition-all duration-200 font-mono"
+                  placeholder="Enter your 12-character secret key"
+                  value={formData.secret_key}
+                  onChange={handleChange}
+                  maxLength={12}
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="new_password" className="block text-sm font-medium text-gray-700">
+                  New Password
+                </label>
+                <input
+                  id="new_password"
+                  name="new_password"
                   type="password"
-                  autoComplete="current-password"
                   required
                   className="mt-1 appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue focus:border-primary-blue focus:z-10 sm:text-sm transition-all duration-200"
-                  placeholder="Enter your password"
-                  value={formData.password}
+                  placeholder="Enter new password"
+                  value={formData.new_password}
+                  onChange={handleChange}
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="confirm_password" className="block text-sm font-medium text-gray-700">
+                  Confirm New Password
+                </label>
+                <input
+                  id="confirm_password"
+                  name="confirm_password"
+                  type="password"
+                  required
+                  className="mt-1 appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue focus:border-primary-blue focus:z-10 sm:text-sm transition-all duration-200"
+                  placeholder="Confirm new password"
+                  value={formData.confirm_password}
                   onChange={handleChange}
                 />
               </div>
@@ -138,6 +190,21 @@ const Login = () => {
               </div>
             )}
 
+            {success && (
+              <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-lg">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm">{success}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <button
                 type="submit"
@@ -147,20 +214,29 @@ const Login = () => {
                 {loading ? (
                   <div className="flex items-center">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Signing in...
+                    Resetting Password...
                   </div>
                 ) : (
                   <div className="flex items-center">
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m0 0a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2m0 0V7a2 2 0 012-2m6 2a2 2 0 00-2-2m0 0a2 2 0 00-2-2v6a2 2 0 002 2h6M7 7h6v6H7z" />
                     </svg>
-                    Sign in
+                    Reset Password
                   </div>
                 )}
               </button>
             </div>
 
             <div className="text-center space-y-2">
+              <p className="text-sm text-gray-600">
+                Remember your password?{' '}
+                <Link 
+                  to="/login" 
+                  className="font-medium text-primary-blue hover:text-dark-blue transition-colors duration-200"
+                >
+                  Sign in here
+                </Link>
+              </p>
               <p className="text-sm text-gray-600">
                 Don't have an account?{' '}
                 <Link 
@@ -170,54 +246,12 @@ const Login = () => {
                   Sign up here
                 </Link>
               </p>
-              <p className="text-sm text-gray-600">
-                Forgot your password?{' '}
-                <Link 
-                  to="/reset-password" 
-                  className="font-medium text-primary-blue hover:text-dark-blue transition-colors duration-200"
-                >
-                  Reset it here
-                </Link>
-              </p>
             </div>
           </form>
-        </div>
-
-        {/* Features */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">
-            What you'll get access to:
-          </h3>
-          <div className="grid grid-cols-1 gap-3">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <span className="text-sm text-gray-700">AI-powered budget recommendations</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-              <span className="text-sm text-gray-700">Smart payment prioritization</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
-                <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.451L3 21l2.451-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
-                </svg>
-              </div>
-              <span className="text-sm text-gray-700">Personal finance chatbot</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
   );
 };
 
-export default Login;
+export default ResetPassword;
