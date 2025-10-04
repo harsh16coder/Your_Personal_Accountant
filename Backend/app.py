@@ -48,7 +48,8 @@ def init_db():
       created_at TEXT NOT NULL
     )
     """)
-    # finance tables
+
+    # expenses tables
     cur.execute("""
     CREATE TABLE IF NOT EXISTS expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,6 +65,8 @@ def init_db():
       created_at TEXT NOT NULL
     )
     """)
+
+    # trades
     cur.execute("""
     CREATE TABLE IF NOT EXISTS trades (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -253,7 +256,6 @@ def build_sql_and_params(user_id: str, source_text: str, llm: dict):
 def create_session():
     data = request.get_json(force=True) or {}
     user_id = data.get("user_id") or "demo-user"
-    print(user_id)
     title = data.get("title") or "New chat"
     sid = data.get("session_id") or str(uuid.uuid4())
 
@@ -264,6 +266,17 @@ def create_session():
     conn.commit()
     conn.close()
     return jsonify({"session_id": sid, "title": title})
+
+# Check if session exists
+@app.get("/api/sessions/<sid>/validate")
+def validate_session(sid):
+    """Check whether a session ID exists in the database."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM sessions WHERE id = ?", (sid,))
+    exists = cur.fetchone() is not None
+    conn.close()
+    return jsonify({"valid": exists})
 
 @app.get("/api/sessions/<sid>/messages")
 def get_messages(sid):
@@ -278,6 +291,7 @@ def get_messages(sid):
 @app.post("/api/chat")
 def chat():
     data = request.get_json(force=True) or {}
+    print(data)
     user_id = data.get("user_id") or "demo-user"
     session_id = data.get("session_id")
     message = data.get("message", "").strip()

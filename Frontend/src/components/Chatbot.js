@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { sendChatMessage, createChatSession, getChatMessages } from '../services/api';
+import { sendChatMessage, validateSession, createChatSession, getChatMessages } from '../services/api';
 
 // Global function to clear chat session (can be called from login/logout)
 export const clearStoredChatSession = () => {
@@ -33,6 +33,16 @@ const Chatbot = () => {
           // Check if we have an existing session ID in localStorage
           const storedSessionId = localStorage.getItem('chatSessionId');
           let currentSessionId = storedSessionId;
+
+	  if(currentSessionId)
+		{
+	  		const isValid = await validateSession(currentSessionId);
+	  		if(!isValid) {
+		  		console.log('Invalid sessionId detected, clearing storage...');
+		  		localStorage.removeItem('chatSessionId')
+				currentSessionId = '';
+	  		}
+		}
           
           // If no stored session or session is invalid, create a new one
           if (!currentSessionId) {
@@ -43,6 +53,7 @@ const Chatbot = () => {
             currentSessionId = sessionData.session_id;
             localStorage.setItem('chatSessionId', currentSessionId);
           }
+	  
           
           setSessionId(currentSessionId);
           
