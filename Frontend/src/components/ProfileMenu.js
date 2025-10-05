@@ -125,6 +125,10 @@ const ProfileMenu = ({ user, onProfileUpdate }) => {
                   <span className="text-gray-600">Other Income:</span>
                   <span className="font-medium">{formatCurrency(user?.other_income || 0)}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">AI Model:</span>
+                  <span className="font-medium">{user?.selected_model || 'llama3.1-8b'}</span>
+                </div>
               </div>
 
               {/* Custom Preferences */}
