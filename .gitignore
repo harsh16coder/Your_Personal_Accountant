@@ -266,7 +266,6 @@ dist
 
 # Gatsby files
 .cache/
-public
 
 # Vuepress build output
 .vuepress/dist
@@ -459,4 +458,5 @@ Temporary Items
 !README.md
 !CHANGELOG.md
 !LICENSE
+
 !docs/
