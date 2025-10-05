@@ -2,7 +2,6 @@ import axios from 'axios';
 import { mockAPI } from './mockData';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-const USE_MOCK_DATA = process.env.REACT_APP_USE_MOCK === 'true'; // Use real API by default
 
 // Create axios instance with default config
 const api = axios.create({
@@ -33,21 +32,15 @@ api.interceptors.response.use(
   }
 );
 
-// Helper function to decide between mock and real API (commented out as we're using direct conditionals)
-// const selectAPI = (mockFunction, realFunction) => {
-//   return USE_MOCK_DATA ? mockFunction : realFunction;
-// };
 
 // Auth API calls
-export const register = USE_MOCK_DATA ? 
-  mockAPI.register : 
+export const register = 
   async (userData) => {
     const response = await api.post('/api/auth/register', userData);
     return response.data;
   };
 
-export const login = USE_MOCK_DATA ? 
-  mockAPI.login : 
+export const login = 
   async (credentials) => {
     const response = await api.post('/api/auth/login', credentials);
     return response.data;
@@ -63,6 +56,11 @@ export const updateProfile = async (profileData) => {
   return response.data;
 };
 
+export const getAvailableModels = async () => {
+  const response = await api.get('/api/models');
+  return response.data;
+};
+
 export const resetPassword = async (resetData) => {
   const response = await api.post('/api/auth/reset-password', resetData);
   return response.data;
@@ -74,23 +72,20 @@ export const getSecretKey = async (passwordData) => {
 };
 
 // Dashboard API calls
-export const getDashboard = USE_MOCK_DATA ? 
-  mockAPI.getDashboard : 
+export const getDashboard = 
   async () => {
     const response = await api.get('/api/dashboard');
     return response.data;
   };
 
 // Asset API calls
-export const getAssets = USE_MOCK_DATA ? 
-  mockAPI.getAssets : 
+export const getAssets = 
   async () => {
     const response = await api.get('/api/assets');
     return response.data;
   };
 
-export const createAsset = USE_MOCK_DATA ? 
-  mockAPI.createAsset : 
+export const createAsset = 
   async (assetData) => {
     const response = await api.post('/api/assets', assetData);
     return response.data;
@@ -106,8 +101,7 @@ export const getAssetTypes = async () => {
   return response.data;
 };
 
-export const getTentativeAssets = USE_MOCK_DATA ? 
-  mockAPI.getTentativeAssets : 
+export const getTentativeAssets = 
   async () => {
     const response = await api.get('/api/tentative-assets');
     return response.data;
@@ -119,15 +113,13 @@ export const createTentativeAsset = async (assetData) => {
 };
 
 // Liability API calls
-export const getLiabilities = USE_MOCK_DATA ? 
-  mockAPI.getLiabilities : 
+export const getLiabilities = 
   async () => {
     const response = await api.get('/api/liabilities');
     return response.data;
   };
 
-export const createLiability = USE_MOCK_DATA ? 
-  mockAPI.createLiability : 
+export const createLiability = 
   async (liabilityData) => {
     const response = await api.post('/api/liabilities', liabilityData);
     return response.data;
@@ -143,8 +135,7 @@ export const getLiabilityTypes = async () => {
   return response.data;
 };
 
-export const payInstallment = USE_MOCK_DATA ? 
-  mockAPI.payInstallment : 
+export const payInstallment = 
   async (liabilityId) => {
     const response = await api.post(`/api/liabilities/${liabilityId}/pay`);
     return response.data;
@@ -156,8 +147,7 @@ export const makeLiabilityPayment = async (liabilityId, paymentData) => {
 };
 
 // Recommendation API calls
-export const getRecommendations = USE_MOCK_DATA ? 
-  mockAPI.getRecommendations : 
+export const getRecommendations = 
   async () => {
     const response = await api.get('/api/recommendations');
     return response.data;
@@ -175,22 +165,19 @@ export async function validateSession(sessionId) {
 };
 
 // Chatbot API calls
-export const createChatSession = USE_MOCK_DATA ? 
-  mockAPI.createChatSession || (() => Promise.resolve({ session_id: 'mock-session', title: 'Mock Chat' })) :
+export const createChatSession = 
   async (sessionData) => {
     const response = await api.post('/api/sessions', sessionData);
     return response.data;
   };
 
-export const getChatMessages = USE_MOCK_DATA ? 
-  mockAPI.getChatMessages || (() => Promise.resolve({ messages: [] })) :
+export const getChatMessages = 
   async (sessionId) => {
     const response = await api.get(`/api/sessions/${sessionId}/messages`);
     return response.data;
   };
 
-export const sendChatMessage = USE_MOCK_DATA ? 
-  mockAPI.sendChatMessage : 
+export const sendChatMessage = 
   async (messageData) => {
     const response = await api.post('/api/chat', messageData);
     return response.data;
@@ -202,8 +189,7 @@ export const resetConversation = async () => {
 };
 
 // Get chat history for demo
-export const getChatHistory = USE_MOCK_DATA ? 
-  mockAPI.getChatHistory : 
+export const getChatHistory = 
   async () => {
     // Real API would implement this
     return [];
