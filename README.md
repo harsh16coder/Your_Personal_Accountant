@@ -30,17 +30,9 @@ A comprehensive AI-powered personal finance management application featuring an 
 - Asset management (savings, investments, properties)
 - Smart liability tracking with priority scoring
 - AI-generated financial recommendations
-- Interactive financial cards with hover effects
-
-### 🔄 Real-Time Data Synchronization
-- Live updates across all components
-- Context-aware refreshing
-- No manual refresh required
-- Cross-component synchronization
 
 ## 📚 Documentation
 
-- **[Getting Started Guide](docs/GETTING_STARTED.md)** - Quick setup and installation
 - **[Project Architecture](docs/ARCHITECTURE.md)** - Technical structure and design
 - **[API Documentation](docs/API.md)** - Complete API reference
 - **[Features Guide](docs/FEATURES.md)** - Detailed feature documentation
@@ -52,7 +44,7 @@ A comprehensive AI-powered personal finance management application featuring an 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js (v14 or higher)
+- REACT
 - Python (v3.8 or higher)
 - npm or yarn
 - Cerebras AI API Key - [Get yours here](https://cloud.cerebras.ai/)
@@ -61,7 +53,7 @@ A comprehensive AI-powered personal finance management application featuring an 
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/your-username/Your_Personal_Accountant.git
+git clone https://github.com/harsh16coder/Your_Personal_Accountant.git
 cd Your_Personal_Accountant
 ```
 
@@ -85,15 +77,11 @@ npm start
 - Frontend: http://localhost:3000
 - Backend: http://127.0.0.1:5000
 
-### Demo Login
-- **Email**: demo@example.com
-- **Password**: demo123
-
 ## 🛠️ Technology Stack
 
 **Frontend:** React 18.2.0, Tailwind CSS, React Router, Axios  
 **Backend:** Flask 2.3.2, SQLite, Flask-CORS, JWT  
-**AI Integration:** Cerebras Cloud SDK, Llama 4 Scout 17B
+**AI Integration:** Cerebras Cloud SDK
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical information.
 
@@ -125,9 +113,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- 📧 Email: your-email@example.com
-- 🐛 [Report Bug](https://github.com/your-username/Your_Personal_Accountant/issues)
-- ✨ [Request Feature](https://github.com/your-username/Your_Personal_Accountant/issues)
+- 🐛 [Report Bug](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
+- ✨ [Request Feature](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
 - 📖 [Documentation](docs/)
 
 ## 🙏 Acknowledgments
@@ -143,7 +130,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ for better financial management**
 
-[🌐 Website](https://your-website.com) • [📧 Email](mailto:your-email@example.com) • [🐛 Issues](https://github.com/your-username/Your_Personal_Accountant/issues)
+[🌐 Website](https://your-website.com) • [📧 Email](mailto:your-email@example.com) • [🐛 Issues](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
 
 ⭐ Star this repository if it helped you manage your finances better!
 
