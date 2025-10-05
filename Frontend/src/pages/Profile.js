@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getProfile, updateProfile } from '../services/api';
+import { getProfile, updateProfile, getAvailableModels } from '../services/api';
 
 const Profile = () => {
   const [profile, setProfile] = useState(null);
@@ -8,11 +8,14 @@ const Profile = () => {
   const [error, setError] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     monthly_income: '',
     currency_preference: 'USD',
-    cerebras_api_key: ''
+    cerebras_api_key: '',
+    selected_model: 'llama3.1-8b'
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const navigate = useNavigate();
@@ -20,6 +23,12 @@ const Profile = () => {
   useEffect(() => {
     fetchProfile();
   }, []);
+
+  useEffect(() => {
+    if (profile?.has_api_key && editMode) {
+      fetchAvailableModels();
+    }
+  }, [profile?.has_api_key, editMode]);
 
   const fetchProfile = async () => {
     try {
@@ -30,7 +39,8 @@ const Profile = () => {
         name: response.profile.name || '',
         monthly_income: response.profile.monthly_income || '',
         currency_preference: response.profile.currency_preference || 'USD',
-        cerebras_api_key: ''  // Don't pre-fill for security
+        cerebras_api_key: '',  // Don't pre-fill for security
+        selected_model: response.profile.selected_model || 'llama3.1-8b'
       });
       setError(null);
     } catch (err) {
@@ -44,6 +54,24 @@ const Profile = () => {
     }
   };
 
+  const fetchAvailableModels = async () => {
+    if (!profile?.has_api_key) {
+      return; // Can't fetch models without API key
+    }
+    
+    try {
+      setLoadingModels(true);
+      const response = await getAvailableModels();
+      setAvailableModels(response.models || []);
+    } catch (err) {
+      console.error('Failed to fetch available models:', err);
+      // Don't show error for models - it's not critical
+      setAvailableModels([]);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setUpdating(true);
@@ -53,7 +81,8 @@ const Profile = () => {
       const updateData = {
         name: formData.name,
         monthly_income: parseFloat(formData.monthly_income) || 0,
-        currency_preference: formData.currency_preference
+        currency_preference: formData.currency_preference,
+        selected_model: formData.selected_model
       };
 
       // Only include API key if it's provided
@@ -79,7 +108,8 @@ const Profile = () => {
       name: profile?.name || '',
       monthly_income: profile?.monthly_income || '',
       currency_preference: profile?.currency_preference || 'USD',
-      cerebras_api_key: ''
+      cerebras_api_key: '',
+      selected_model: profile?.selected_model || 'llama3.1-8b'
     });
     setError(null);
   };
@@ -205,7 +235,7 @@ const Profile = () => {
                           To use the AI-powered financial assistant, you need a Cerebras API key. 
                           Get your free API key from{' '}
                           <a href="https://cloud.cerebras.ai/" target="_blank" rel="noopener noreferrer" className="font-medium underline">
-                            console.cerebras.ai
+                            cloud.cerebras.ai
                           </a>
                         </p>
                       </div>
@@ -250,6 +280,47 @@ const Profile = () => {
                         <>API key must start with 'csk-'. Leave empty to keep current key.</>
                       )}
                     </p>
+                  </div>
+
+                  {/* Model Selection */}
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      AI Model Selection
+                    </label>
+                    {profile?.has_api_key ? (
+                      <div>
+                        <select
+                          value={formData.selected_model}
+                          onChange={(e) => setFormData({...formData, selected_model: e.target.value})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
+                          disabled={loadingModels}
+                        >
+                          <option value="llama3.1-8b">llama3.1-8b (Default)</option>
+                          {availableModels.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ))}
+                        </select>
+                        {loadingModels && (
+                          <p className="text-xs text-blue-600 mt-1">Loading available models...</p>
+                        )}
+                        {!loadingModels && availableModels.length === 0 && profile?.has_api_key && (
+                          <p className="text-xs text-yellow-600 mt-1">
+                            Unable to fetch models. Using default model.
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          Choose which AI model to use for financial assistance. Different models may have different capabilities.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                        <p className="text-sm text-gray-600">
+                          Configure your API key first to see available models
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -309,19 +380,29 @@ const Profile = () => {
                 {/* API Configuration Status */}
                 <div>
                   <h3 className="text-lg font-semibold text-gray-800 mb-4">AI Assistant Configuration</h3>
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-3 h-3 rounded-full ${profile?.has_api_key ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                    <div>
-                      <p className={`font-medium ${profile?.has_api_key ? 'text-green-700' : 'text-red-700'}`}>
-                        {profile?.has_api_key ? 'API Key Configured' : 'API Key Required'}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        {profile?.has_api_key 
-                          ? `Current key: ${profile.api_key_preview}` 
-                          : 'Configure your Cerebras API key to use the AI assistant'
-                        }
-                      </p>
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-3 h-3 rounded-full ${profile?.has_api_key ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      <div>
+                        <p className={`font-medium ${profile?.has_api_key ? 'text-green-700' : 'text-red-700'}`}>
+                          {profile?.has_api_key ? 'API Key Configured' : 'API Key Required'}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          {profile?.has_api_key 
+                            ? `Current key: ${profile.api_key_preview}` 
+                            : 'Configure your Cerebras API key to use the AI assistant'
+                          }
+                        </p>
+                      </div>
                     </div>
+                    
+                    {profile?.has_api_key && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500">Selected AI Model</label>
+                        <p className="text-lg text-gray-800">{profile?.selected_model || 'llama3.1-8b'}</p>
+                        <p className="text-sm text-gray-600">The AI model currently being used for financial assistance</p>
+                      </div>
+                    )}
                   </div>
                   
                   {!profile?.has_api_key && (
