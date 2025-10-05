@@ -240,20 +240,6 @@ docs/images/
     └── payment-flow.gif
 ```
 
-### Using Images in Documentation
-
-```markdown
-<!-- Relative path from docs/ -->
-![Dashboard Screenshot](images/screenshots/dashboard.png)
-
-<!-- With alt text and title -->
-![Architecture Diagram](images/diagrams/architecture.png "System Architecture")
-
-<!-- Centered image with HTML -->
-<div align="center">
-  <img src="images/logos/logo.png" alt="Logo" width="200">
-</div>
-```
 
 ## 📚 GitHub Templates
 
@@ -381,5 +367,3 @@ If you're unsure about file placement:
 4. Ask in GitHub Discussions
 
 ---
-
-**Remember:** Consistent structure makes documentation easier to maintain and navigate! 📁✨

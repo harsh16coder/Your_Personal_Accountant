@@ -2,7 +2,7 @@
 
 Complete reference for all API endpoints in Your Personal Accountant.
 
-**Base URL:** `http://localhost:5000/api`
+**Base URL:** `http://localhost:5000/api` (change this as per your domain name)
 
 ## 🔐 Authentication
 
@@ -666,7 +666,6 @@ Send a message to the AI assistant.
 
 **Supported Actions:**
 - `expense_recorded` - Expense was logged
-- `trade_logged` - Investment trade recorded
 - `payment_processed` - Payment made on liability
 - `advice_given` - Financial guidance provided
 - `none` - General conversation
@@ -733,7 +732,7 @@ Retrieve user expenses.
 
 ### Get Trades
 
-Retrieve investment trades.
+Retrieve investment trades. (Currently not in use. Future work: Integrate stocks with assets)
 
 **Endpoint:** `GET /api/trades`
 
@@ -801,7 +800,7 @@ All endpoints may return the following error responses:
 
 ## 🔧 Rate Limits
 
-Currently, no rate limits are enforced. Future versions will implement:
+Currently, no rate limits are enforced. Tentative future versions will implement:
 
 - **Authentication endpoints:** 5 requests per minute
 - **Chat endpoints:** 20 requests per minute

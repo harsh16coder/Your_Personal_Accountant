@@ -12,13 +12,12 @@ The Dashboard is your financial command center, providing real-time insights int
 - **Total Liabilities** - Sum of all debts and payment obligations
 - **Net Worth** - Your assets minus liabilities
 - **Recent Activity** - Latest transactions and updates
-- **Quick Actions** - Fast access to common tasks
+- **Quick Profile Actions** - Fast access to change profile related settings
 
 ### Using the Dashboard
 
 1. **View Summary Cards** - Click any card for detailed breakdown
-2. **Monitor Trends** - Track how your finances change over time
-3. **Quick Add** - Use the "+" buttons to add assets or liabilities
+2. **Quick Add** - Use the "+" buttons to add assets or liabilities
 4. **Refresh Data** - Pull to refresh or use the refresh button
 
 ---
@@ -33,14 +32,11 @@ Track all your financial assets in one place.
 - Savings accounts
 - Checking accounts
 - Cash on hand
-- Money market accounts
 
 **Investment Assets** - Long-term growth assets
 - Stocks and bonds
 - Mutual funds
 - Real estate
-- Retirement accounts
-- Cryptocurrency
 
 ### Adding an Asset
 
@@ -53,6 +49,7 @@ Track all your financial assets in one place.
    Type: Liquid
    ```
 4. Click **"Save"**
+5. Alternatively, you can add assets by asking the chatbot
 
 ### Editing Assets
 
@@ -60,13 +57,13 @@ Track all your financial assets in one place.
 2. Modify the information
 3. Save changes
 4. Changes reflect immediately across the app
+5. Alternatively, you can modify assets by asking the chatbot
 
 ### Asset Best Practices
 
 - Update regularly for accurate net worth
 - Categorize correctly (liquid vs investment)
 - Include all sources of wealth
-- Review quarterly for rebalancing
 
 ---
 
@@ -89,7 +86,6 @@ Track and manage all debts and payment obligations.
 
 **Revolving Credit**
 - Credit cards
-- Lines of credit
 
 ### Adding a Liability
 
@@ -104,15 +100,16 @@ Track and manage all debts and payment obligations.
    Priority: 8 (1-10 scale)
    ```
 4. Click **"Save"**
+5. Alternatively, you can add liabilities by asking the chatbot
 
 ### Priority Scoring
 
-Rate each liability's importance (1-10):
+Rate each liability's importance (1-100):
 
-- **9-10**: Critical (mortgage, car payment)
-- **7-8**: High priority (credit cards, student loans)
-- **5-6**: Medium priority (personal loans)
-- **1-4**: Low priority (small debts, subscriptions)
+- **90-100**: Critical (mortgage, car payment)
+- **70-80**: High priority (credit cards, student loans)
+- **50-60**: Medium priority (personal loans)
+- **1-40**: Low priority (small debts, subscriptions)
 
 ### Making Payments
 
@@ -120,7 +117,6 @@ Rate each liability's importance (1-10):
 ```
 "Pay off my credit card completely"
 "Make a $200 payment on my car loan"
-"Pay the minimum on my student loan"
 ```
 
 #### Via Manual Interface
@@ -148,7 +144,7 @@ Your intelligent financial companion powered by Cerebras AI.
 
 ### Getting Started
 
-1. Click the **chatbot icon** (bottom-right corner)
+1. Click the **chatbot bar**
 2. The assistant greets you
 3. Start typing or use voice input (if enabled)
 
@@ -184,7 +180,6 @@ Your intelligent financial companion powered by Cerebras AI.
 "What should I pay first?"
 "Show me my current debt status"
 "Give me savings recommendations"
-"How can I improve my financial health?"
 ```
 
 ### AI Model Selection
@@ -194,6 +189,7 @@ Choose from multiple Cerebras AI models:
 1. **llama3.1-8b** - Fast, efficient for simple queries
 2. **llama-4-scout-17b** - Advanced reasoning, recommended
 3. **llama3.1-70b** - Most powerful, detailed responses
+4. **Other models** - Full list available in the dropdown
 
 **To change model:**
 1. Go to Profile → Settings
@@ -483,4 +479,3 @@ To delete your account:
 ---
 
 For technical details, see [API Documentation](API.md).  
-For setup help, see [Getting Started](GETTING_STARTED.md).

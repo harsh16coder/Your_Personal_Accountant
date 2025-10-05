@@ -4,7 +4,6 @@ Thank you for your interest in contributing! This document provides guidelines a
 
 ## 📋 Table of Contents
 
-- [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
 - [Development Workflow](#development-workflow)
 - [Coding Standards](#coding-standards)
@@ -12,30 +11,6 @@ Thank you for your interest in contributing! This document provides guidelines a
 - [Pull Request Process](#pull-request-process)
 - [Bug Reports](#bug-reports)
 - [Feature Requests](#feature-requests)
-
----
-
-## 📜 Code of Conduct
-
-### Our Pledge
-
-We are committed to providing a welcoming and inclusive environment for all contributors.
-
-### Expected Behavior
-
-- Be respectful and considerate
-- Welcome newcomers and help them get started
-- Accept constructive criticism gracefully
-- Focus on what's best for the community
-- Show empathy towards others
-
-### Unacceptable Behavior
-
-- Harassment, discrimination, or offensive comments
-- Trolling or insulting/derogatory comments
-- Public or private harassment
-- Publishing others' private information
-- Any conduct that could be considered inappropriate
 
 ---
 
@@ -80,18 +55,6 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-### Run Tests
-
-```bash
-# Backend tests
-cd backend
-python -m pytest
-
-# Frontend tests
-cd frontend
-npm test
-```
-
 ---
 
 ## 🔄 Development Workflow
@@ -127,19 +90,7 @@ git checkout -b fix/bug-description
 - Update documentation as needed
 - Keep commits focused and atomic
 
-### 3. Test Your Changes
-
-```bash
-# Run all tests
-npm test              # Frontend
-python -m pytest      # Backend
-
-# Run linters
-npm run lint          # Frontend
-flake8 .              # Backend
-```
-
-### 4. Commit Your Changes
+### 3. Commit Your Changes
 
 ```bash
 git add .
@@ -148,7 +99,7 @@ git commit -m "feat: add expense categorization feature"
 
 See [Commit Guidelines](#commit-guidelines) for commit message format.
 
-### 5. Push and Create Pull Request
+### 4. Push and Create Pull Request
 
 ```bash
 # Push to your fork
@@ -194,20 +145,6 @@ def calc(a, l):
 - Keep functions small and focused
 - Handle errors gracefully
 
-**Linting:**
-
-```bash
-# Install development dependencies
-pip install flake8 black isort
-
-# Format code
-black .
-isort .
-
-# Check style
-flake8 .
-```
-
 ### JavaScript/React (Frontend)
 
 **Style Guide:** Airbnb JavaScript Style Guide
@@ -248,16 +185,6 @@ function card(a, u) {
 - Extract reusable logic into custom hooks
 - Use const for constants, let for variables
 
-**Linting:**
-
-```bash
-# Format code
-npm run format
-
-# Check style
-npm run lint
-```
-
 ### CSS/Tailwind
 
 ```html
@@ -276,8 +203,6 @@ npm run lint
 ---
 
 ## 📝 Commit Guidelines
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/) specification.
 
 ### Commit Message Format
 
@@ -335,7 +260,6 @@ Closes #123"
 ### Before Submitting
 
 - [ ] Code follows project style guidelines
-- [ ] All tests pass
 - [ ] New tests added for new features
 - [ ] Documentation updated
 - [ ] Commits follow commit guidelines
@@ -346,7 +270,6 @@ Closes #123"
 Follow commit message format:
 
 ```
-feat(chatbot): add multi-language support
 fix(api): correct timezone handling in date calculations
 ```
 
@@ -441,47 +364,6 @@ Any other relevant information
 
 ---
 
-## ✨ Feature Requests
-
-### Before Requesting
-
-1. **Check existing requests** - Feature might be planned
-2. **Consider scope** - Should it be a core feature?
-3. **Think about alternatives** - Can it be achieved differently?
-
-### Feature Request Template
-
-```markdown
-**Is your feature request related to a problem?**
-Description of the problem
-
-**Describe the solution you'd like**
-Clear description of desired feature
-
-**Describe alternatives considered**
-Other solutions you've considered
-
-**Additional context**
-Mockups, examples, etc.
-
-**Would you like to implement this feature?**
-- [ ] Yes, I can implement this
-- [ ] No, I need help
-- [ ] I can help with testing
-```
-
----
-
-## 🎯 Good First Issues
-
-New to the project? Look for issues labeled:
-
-- `good first issue` - Perfect for beginners
-- `help wanted` - We need contributors
-- `documentation` - Docs improvements
-
----
-
 ## 💬 Communication
 
 ### Where to Ask Questions
@@ -498,38 +380,11 @@ New to the project? Look for issues labeled:
 
 ---
 
-## 🏆 Recognition
-
-Contributors are recognized in:
-
-- README contributors section
-- Release notes
-- GitHub contributors page
-
-Significant contributions may earn you:
-
-- Collaborator status
-- Special mentions
-- Feature naming rights
-
----
 
 ## 📚 Additional Resources
 
-- [Project Documentation](docs/)
-- [API Documentation](docs/API.md)
-- [Architecture Guide](docs/ARCHITECTURE.md)
-- [Development Setup](docs/GETTING_STARTED.md)
-
----
-
-## 📞 Contact
-
-Need help? Have questions?
-
-- 📧 Email: your-email@example.com
-- 💬 GitHub Discussions
-- 🐛 GitHub Issues
+- [Project Documentation](../docs/)
+- [API Documentation](../docs/API.md)
 
 ---
 

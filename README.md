@@ -128,9 +128,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-**Made with ❤️ for better financial management**
+**Made by the Team Rocket for better financial management**
 
-[🌐 Website](https://your-website.com) • [📧 Email](mailto:your-email@example.com) • [🐛 Issues](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
+• [🐛 Issues](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
 
 ⭐ Star this repository if it helped you manage your finances better!
 

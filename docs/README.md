@@ -227,7 +227,6 @@ Can't find what you're looking for? Try these resources:
 ### By Topic
 
 **Installation & Setup**
-- [Getting Started Guide](GETTING_STARTED.md)
 - [Deployment Guide](DEPLOYMENT.md)
 
 **Features & Usage**
@@ -235,16 +234,14 @@ Can't find what you're looking for? Try these resources:
 - [API Documentation](API.md)
 
 **Technical Details**
-- [Architecture Guide](ARCHITECTURE.md)
 - [API Documentation](API.md)
 
 **Problems & Solutions**
 - [Troubleshooting Guide](TROUBLESHOOTING.md)
-- [GitHub Issues](https://github.com/your-username/Your_Personal_Accountant/issues)
+- [GitHub Issues](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
 
 **Security**
 - [Security Policy](SECURITY.md)
-- [Architecture Security](ARCHITECTURE.md#security-architecture)
 
 **Contributing**
 - [Contributing Guide](CONTRIBUTING.md)
@@ -308,8 +305,8 @@ Found an error or want to improve the docs?
 ### Support Channels
 
 - **📧 Email:** your-email@example.com
-- **💬 GitHub Discussions:** [Start a discussion](https://github.com/your-username/Your_Personal_Accountant/discussions)
-- **🐛 GitHub Issues:** [Report a bug](https://github.com/your-username/Your_Personal_Accountant/issues)
+- **💬 GitHub Discussions:** [Start a discussion](https://github.com/harsh16coder/Your_Personal_Accountant/discussions)
+- **🐛 GitHub Issues:** [Report a bug](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
 - **📖 Documentation:** You're reading it!
 
 ### Response Times
@@ -325,20 +322,12 @@ Found an error or want to improve the docs?
 ### Recommended Reading Order
 
 **For beginners:**
-1. [Getting Started](GETTING_STARTED.md) - Setup and basics
-2. [Features Guide](FEATURES.md) - Learn what you can do
-3. [Troubleshooting](TROUBLESHOOTING.md) - Common issues
+1. [Features Guide](FEATURES.md) - Learn what you can do
+2. [Troubleshooting](TROUBLESHOOTING.md) - Common issues
 
 **For developers:**
-1. [Getting Started](GETTING_STARTED.md) - Setup dev environment
-2. [Architecture](ARCHITECTURE.md) - Understand the system
-3. [API Documentation](API.md) - Learn the API
-4. [Contributing](CONTRIBUTING.md) - Start contributing
-
-**For deploying:**
-1. [Deployment Guide](DEPLOYMENT.md) - Deploy to production
-2. [Security Policy](SECURITY.md) - Secure your deployment
-3. [Troubleshooting](TROUBLESHOOTING.md) - Fix production issues
+1. [API Documentation](API.md) - Learn the API
+2. [Contributing](CONTRIBUTING.md) - Start contributing
 
 ### External Resources
 
@@ -384,15 +373,13 @@ Before deploying or contributing, ensure you've reviewed:
 
 ### Most Popular
 
-1. **[Getting Started Guide](GETTING_STARTED.md)** - Essential for everyone
-2. **[Features Guide](FEATURES.md)** - Learn what you can do
+1. **[Features Guide](FEATURES.md)** - Learn what you can do
 3. **[Troubleshooting](TROUBLESHOOTING.md)** - Solve common problems
 
 ### Recently Updated
 
 - **[Security Policy](SECURITY.md)** - Enhanced security guidelines
 - **[API Documentation](API.md)** - New endpoints documented
-- **[Deployment Guide](DEPLOYMENT.md)** - Added Docker instructions
 
 ### Coming Soon
 
@@ -406,8 +393,7 @@ Before deploying or contributing, ensure you've reviewed:
 ## 📊 Documentation Statistics
 
 - **Total Documents:** 7 comprehensive guides
-- **Total Pages:** ~150+ pages
-- **Code Examples:** 100+ examples
+- **Code Examples:** Multiple examples
 - **Screenshots:** Coming soon
 - **Last Updated:** October 2025
 
@@ -430,25 +416,17 @@ This documentation is part of Your Personal Accountant and is licensed under the
 ## 🔗 Quick Links
 
 ### Documentation
-- [Getting Started](GETTING_STARTED.md)
-- [Architecture](ARCHITECTURE.md)
 - [API Reference](API.md)
 - [Features](FEATURES.md)
-- [Deployment](DEPLOYMENT.md)
 - [Contributing](CONTRIBUTING.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Security](SECURITY.md)
 
 ### Project
 - [Main README](../README.md)
-- [GitHub Repository](https://github.com/your-username/Your_Personal_Accountant)
-- [Issue Tracker](https://github.com/your-username/Your_Personal_Accountant/issues)
-- [Discussions](https://github.com/your-username/Your_Personal_Accountant/discussions)
-
-### Support
-- 📧 Email: your-email@example.com
-- 🌐 Website: https://your-website.com
-- 💬 Chat: Coming soon
+- [GitHub Repository](https://github.com/harsh16coder/Your_Personal_Accountant)
+- [Issue Tracker](https://github.com/harsh16coder/Your_Personal_Accountant/issues)
+- [Discussions](https://github.com/harsh16coder/Your_Personal_Accountant/discussions)
 
 ---
 
@@ -456,6 +434,6 @@ This documentation is part of Your Personal Accountant and is licensed under the
 
 **Happy Learning! 📚**
 
-Can't find what you're looking for? [Open an issue](https://github.com/your-username/Your_Personal_Accountant/issues) and let us know!
+Can't find what you're looking for? [Open an issue](https://github.com/harsh16coder/Your_Personal_Accountant/issues) and let us know!
 
 </div>
